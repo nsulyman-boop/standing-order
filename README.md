@@ -68,7 +68,7 @@ NEAR tools and why each one is needed:
 Requires Rust 1.86+ with the `wasm32-unknown-unknown` target and a C compiler.
 
 ```bash
-git clone <this repo> && cd standing-order
+git clone https://github.com/nsulyman-boop/standing-order && cd standing-order
 ./scripts/test.sh
 ```
 
