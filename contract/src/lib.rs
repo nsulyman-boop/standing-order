@@ -1,0 +1,535 @@
+//! Standing Order: recurring payroll and scheduled payouts for Sputnik DAO treasuries on NEAR.
+//!
+//! A treasury (normally a Sputnik DAO) creates and funds a plan once. Afterwards anyone, usually a
+//! keeper holding a function-call key limited to `run_due`, can trigger the next scheduled run.
+//! Only the plan owner can pause, resume, update, cancel or sweep.
+
+mod events;
+pub mod types;
+
+use near_sdk::json_types::U128;
+use near_sdk::store::{IterableMap, LookupMap};
+use near_sdk::{
+    env, ext_contract, log, near, require, AccountId, BorshStorageKey, Gas, NearToken,
+    PanicOnDefault, Promise, PromiseError,
+};
+
+pub use types::*;
+
+/// Gas budgeted for one native NEAR payout (transfer + callback).
+const GAS_PER_NEAR_PAYOUT: Gas = Gas::from_tgas(10);
+/// Gas budgeted for one fungible-token payout (ft_transfer + callback).
+const GAS_PER_FT_PAYOUT: Gas = Gas::from_tgas(40);
+const GAS_FT_TRANSFER: Gas = Gas::from_tgas(20);
+const GAS_ON_PAYOUT: Gas = Gas::from_tgas(5);
+/// Gas kept back after the last payout of a call for bookkeeping.
+const GAS_RESERVE: Gas = Gas::from_tgas(20);
+const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
+
+#[ext_contract(ext_ft)]
+pub trait FungibleToken {
+    fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>);
+}
+
+#[near(serializers = [borsh])]
+#[derive(BorshStorageKey)]
+enum StorageKey {
+    Plans,
+    PlansByOwner,
+    Payouts,
+    StorageCredits,
+}
+
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
+pub struct Contract {
+    owner_id: AccountId,
+    plans: IterableMap<u64, Plan>,
+    plans_by_owner: LookupMap<AccountId, Vec<u64>>,
+    /// (plan_id, seq) -> record
+    payouts: LookupMap<(u64, u32), PayoutRecord>,
+    /// NEAR prepaid for storage by an account (used when plans arrive via ft_transfer_call).
+    storage_credits: LookupMap<AccountId, u128>,
+    next_plan_id: u64,
+    /// When true the contract pays storage for plans created through `ft_on_transfer`
+    /// if the sender has no credits. Handy for demos; turn off in production.
+    sponsor_storage: bool,
+    min_interval_seconds: u64,
+    max_recipients: u32,
+}
+
+#[near]
+impl Contract {
+    #[init]
+    pub fn new(owner_id: AccountId, sponsor_storage: bool, min_interval_seconds: Option<u64>) -> Self {
+        Self {
+            owner_id,
+            plans: IterableMap::new(StorageKey::Plans),
+            plans_by_owner: LookupMap::new(StorageKey::PlansByOwner),
+            payouts: LookupMap::new(StorageKey::Payouts),
+            storage_credits: LookupMap::new(StorageKey::StorageCredits),
+            next_plan_id: 1,
+            sponsor_storage,
+            min_interval_seconds: min_interval_seconds.unwrap_or(60),
+            max_recipients: 100,
+        }
+    }
+
+    // ───────────────────────────── plan lifecycle ─────────────────────────────
+
+    /// Create a plan owned by the caller. The attached deposit pays for storage; for native NEAR
+    /// plans the remainder becomes the plan balance, for token plans it is refunded.
+    #[payable]
+    pub fn create_plan(&mut self, plan: PlanInput) -> u64 {
+        let owner = env::predecessor_account_id();
+        let deposit = env::attached_deposit().as_yoctonear();
+        let before = env::storage_usage();
+        let (plan_id, asset) = self.insert_plan(owner.clone(), plan, 0);
+        let storage_cost = self.storage_cost_since(before);
+        require!(
+            deposit >= storage_cost,
+            format!("Attach at least {} yoctoNEAR for storage", storage_cost)
+        );
+        let rest = deposit - storage_cost;
+        if rest > 0 {
+            match asset {
+                Asset::Near => {
+                    let plan = self.plans.get_mut(&plan_id).expect("plan");
+                    plan.balance = U128(rest);
+                    events::plan_funded(plan_id, &owner, rest, rest);
+                }
+                Asset::Ft { .. } => {
+                    Promise::new(owner).transfer(NearToken::from_yoctonear(rest)).detach();
+                }
+            }
+        }
+        plan_id
+    }
+
+    /// Add native NEAR to a native-asset plan.
+    #[payable]
+    pub fn fund_plan(&mut self, plan_id: u64) {
+        let amount = env::attached_deposit().as_yoctonear();
+        require!(amount > 0, "Attach the amount to add");
+        let from = env::predecessor_account_id();
+        let plan = self.plans.get_mut(&plan_id).expect("Plan not found");
+        require!(plan.asset == Asset::Near, "Plan is not funded in NEAR; use ft_transfer_call");
+        require!(plan.status != PlanStatus::Cancelled, "Plan is cancelled");
+        plan.balance = U128(plan.balance.0.checked_add(amount).expect("overflow"));
+        plan.updated_at = Self::now();
+        let balance = plan.balance.0;
+        events::plan_funded(plan_id, &from, amount, balance);
+    }
+
+    /// Execute the next due run (or continue a run in progress). Permissionless.
+    /// Call with up to 300 TGas; large recipient lists are paid over several calls.
+    pub fn run_due(&mut self, plan_id: u64) -> RunOutcome {
+        let now = Self::now();
+        let mut plan = self.plans.get(&plan_id).expect("Plan not found").clone();
+
+        match plan.status {
+            PlanStatus::Paused => return RunOutcome::Paused,
+            PlanStatus::Cancelled => return RunOutcome::Cancelled,
+            PlanStatus::Active => {}
+        }
+
+        let total = plan.total_per_run();
+        if plan.run_cursor.is_none() {
+            if plan.is_ended() {
+                return RunOutcome::Ended;
+            }
+            if now < plan.next_run_at {
+                return RunOutcome::NotDue { next_run_at: plan.next_run_at };
+            }
+            require!(total <= plan.cap_per_run.0, "Run total exceeds cap_per_run");
+            if plan.balance.0 < total {
+                events::plan_underfunded(plan_id, total, plan.balance.0);
+                return RunOutcome::Underfunded { needed: U128(total), balance: plan.balance };
+            }
+            plan.run_cursor = Some(0);
+        }
+
+        let gas_per_payout = match plan.asset {
+            Asset::Near => GAS_PER_NEAR_PAYOUT,
+            Asset::Ft { .. } => GAS_PER_FT_PAYOUT,
+        };
+        let run_index = plan.runs_completed;
+        let len = plan.recipients.len() as u32;
+        let mut cursor = plan.run_cursor.unwrap_or(0);
+        let mut sent = 0u32;
+
+        while cursor < len {
+            let remaining_gas = env::prepaid_gas().as_gas().saturating_sub(env::used_gas().as_gas());
+            if remaining_gas < gas_per_payout.as_gas() + GAS_RESERVE.as_gas() {
+                require!(sent > 0, "Not enough gas to pay a single recipient; attach more gas");
+                break;
+            }
+            let recipient = plan.recipients[cursor as usize].clone();
+            let amount = recipient.amount.0;
+            // Debit first; a failed transfer re-credits in the callback.
+            plan.balance = U128(plan.balance.0.checked_sub(amount).expect("balance underflow"));
+            let seq = plan.payout_count;
+            plan.payout_count += 1;
+            self.payouts.insert(
+                (plan_id, seq),
+                PayoutRecord {
+                    plan_id,
+                    seq,
+                    run_index,
+                    recipient: recipient.account_id.clone(),
+                    amount: U128(amount),
+                    status: PayoutStatus::Pending,
+                    timestamp: now,
+                    block_height: env::block_height(),
+                },
+            );
+            events::payout_dispatched(plan_id, seq, run_index, &recipient.account_id, amount);
+            self.dispatch_transfer(&plan.asset, &recipient.account_id, amount, plan_id, seq);
+            cursor += 1;
+            sent += 1;
+        }
+
+        let completed = cursor >= len;
+        if completed {
+            plan.run_cursor = None;
+            plan.runs_completed += 1;
+            plan.next_run_at += plan.interval_seconds;
+            events::run_completed(plan_id, run_index, total, plan.next_run_at, plan.balance.0);
+        } else {
+            plan.run_cursor = Some(cursor);
+        }
+        plan.updated_at = now;
+        self.plans.insert(plan_id, plan);
+
+        RunOutcome::Sent { run_index, sent, remaining: len - cursor, completed }
+    }
+
+    /// Callback after each payout transfer.
+    #[private]
+    pub fn on_payout(
+        &mut self,
+        plan_id: u64,
+        seq: u32,
+        amount: U128,
+        #[callback_result] result: Result<(), PromiseError>,
+    ) {
+        let record = self.payouts.get_mut(&(plan_id, seq)).expect("payout record");
+        if result.is_ok() {
+            record.status = PayoutStatus::Sent;
+            events::payout_sent(plan_id, seq, &record.recipient, amount.0);
+        } else {
+            record.status = PayoutStatus::Failed;
+            let recipient = record.recipient.clone();
+            let plan = self.plans.get_mut(&plan_id).expect("plan");
+            plan.balance = U128(plan.balance.0.checked_add(amount.0).expect("overflow"));
+            events::payout_failed(plan_id, seq, &recipient, amount.0);
+        }
+    }
+
+    pub fn pause_plan(&mut self, plan_id: u64) {
+        let by = env::predecessor_account_id();
+        let plan = self.owned_plan_mut(&plan_id);
+        require!(plan.status == PlanStatus::Active, "Plan is not active");
+        plan.status = PlanStatus::Paused;
+        plan.updated_at = Self::now();
+        events::plan_status("plan_paused", plan_id, &by);
+    }
+
+    pub fn resume_plan(&mut self, plan_id: u64) {
+        let by = env::predecessor_account_id();
+        let plan = self.owned_plan_mut(&plan_id);
+        require!(plan.status == PlanStatus::Paused, "Plan is not paused");
+        plan.status = PlanStatus::Active;
+        plan.updated_at = Self::now();
+        events::plan_status("plan_resumed", plan_id, &by);
+    }
+
+    /// Update recipients, cap, interval, title or end date. Not allowed mid-run.
+    /// Attach a deposit covering any storage growth; the remainder is refunded.
+    #[payable]
+    pub fn update_plan(&mut self, plan_id: u64, update: PlanUpdate) {
+        let by = env::predecessor_account_id();
+        let deposit = env::attached_deposit().as_yoctonear();
+        let before = env::storage_usage();
+        let min_interval = self.min_interval_seconds;
+        let max_recipients = self.max_recipients;
+        {
+            let plan = self.owned_plan_mut(&plan_id);
+            require!(plan.status != PlanStatus::Cancelled, "Plan is cancelled");
+            require!(plan.run_cursor.is_none(), "Cannot update a plan mid-run");
+            if let Some(title) = update.title {
+                plan.title = title;
+            }
+            if let Some(recipients) = update.recipients {
+                Self::validate_recipients(&recipients, max_recipients);
+                plan.recipients = recipients;
+            }
+            if let Some(cap) = update.cap_per_run {
+                plan.cap_per_run = cap;
+            }
+            if let Some(interval) = update.interval_seconds {
+                require!(interval >= min_interval, "interval_seconds below minimum");
+                plan.interval_seconds = interval;
+            }
+            if update.clear_end_at.unwrap_or(false) {
+                plan.end_at = None;
+            } else if let Some(end) = update.end_at {
+                plan.end_at = Some(end);
+            }
+            require!(plan.total_per_run() <= plan.cap_per_run.0, "Recipients total exceeds cap_per_run");
+            plan.updated_at = Self::now();
+        }
+        let cost = self.storage_cost_since(before);
+        require!(deposit >= cost, format!("Attach at least {} yoctoNEAR for storage", cost));
+        if deposit > cost {
+            Promise::new(by.clone()).transfer(NearToken::from_yoctonear(deposit - cost)).detach();
+        }
+        events::plan_status("plan_updated", plan_id, &by);
+    }
+
+    /// Stop the plan for good and return any remaining balance to the owner.
+    pub fn cancel_plan(&mut self, plan_id: u64) -> Option<Promise> {
+        let by = env::predecessor_account_id();
+        {
+            let plan = self.owned_plan_mut(&plan_id);
+            require!(plan.status != PlanStatus::Cancelled, "Plan is already cancelled");
+            require!(plan.run_cursor.is_none(), "Cannot cancel a plan mid-run");
+            plan.status = PlanStatus::Cancelled;
+            plan.updated_at = Self::now();
+        }
+        events::plan_status("plan_cancelled", plan_id, &by);
+        self.sweep_internal(plan_id, None)
+    }
+
+    /// Return funds to the owner without cancelling (e.g. a quarter-end true-up).
+    pub fn sweep(&mut self, plan_id: u64, amount: Option<U128>) -> Option<Promise> {
+        {
+            let plan = self.owned_plan_mut(&plan_id);
+            require!(plan.run_cursor.is_none(), "Cannot sweep a plan mid-run");
+        }
+        self.sweep_internal(plan_id, amount.map(|a| a.0))
+    }
+
+    /// Callback for token sweeps: re-credit on failure.
+    #[private]
+    pub fn on_sweep(&mut self, plan_id: u64, amount: U128, #[callback_result] result: Result<(), PromiseError>) {
+        if result.is_err() {
+            let plan = self.plans.get_mut(&plan_id).expect("plan");
+            plan.balance = U128(plan.balance.0 + amount.0);
+            log!("Sweep of {} for plan {} failed; balance restored", amount.0, plan_id);
+        }
+    }
+
+    // ───────────────────────────── storage credits ─────────────────────────────
+
+    /// Prepay storage for plans created through `ft_transfer_call`.
+    #[payable]
+    pub fn storage_deposit(&mut self, account_id: Option<AccountId>) -> U128 {
+        let account = account_id.unwrap_or_else(env::predecessor_account_id);
+        let amount = env::attached_deposit().as_yoctonear();
+        let current = self.storage_credits.get(&account).copied().unwrap_or(0);
+        let updated = current + amount;
+        self.storage_credits.insert(account, updated);
+        U128(updated)
+    }
+
+    pub fn storage_credit_of(&self, account_id: AccountId) -> U128 {
+        U128(self.storage_credits.get(&account_id).copied().unwrap_or(0))
+    }
+
+    // ───────────────────────────── admin ─────────────────────────────
+
+    pub fn set_config(&mut self, sponsor_storage: Option<bool>, min_interval_seconds: Option<u64>, max_recipients: Option<u32>) {
+        require!(env::predecessor_account_id() == self.owner_id, "Only the contract owner");
+        if let Some(v) = sponsor_storage {
+            self.sponsor_storage = v;
+        }
+        if let Some(v) = min_interval_seconds {
+            self.min_interval_seconds = v;
+        }
+        if let Some(v) = max_recipients {
+            self.max_recipients = v;
+        }
+    }
+
+    // ───────────────────────────── views ─────────────────────────────
+
+    pub fn get_config(&self) -> Config {
+        Config {
+            owner_id: self.owner_id.clone(),
+            sponsor_storage: self.sponsor_storage,
+            min_interval_seconds: self.min_interval_seconds,
+            max_recipients: self.max_recipients,
+            plan_count: self.next_plan_id - 1,
+        }
+    }
+
+    pub fn get_plan(&self, plan_id: u64) -> Option<Plan> {
+        self.plans.get(&plan_id).cloned()
+    }
+
+    pub fn get_plans(&self, from_index: Option<u64>, limit: Option<u64>) -> Vec<Plan> {
+        let from = from_index.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(50) as usize;
+        self.plans.iter().skip(from).take(limit).map(|(_, p)| p.clone()).collect()
+    }
+
+    pub fn get_plans_by_owner(&self, owner: AccountId) -> Vec<Plan> {
+        self.plans_by_owner
+            .get(&owner)
+            .map(|ids| ids.iter().filter_map(|id| self.plans.get(id).cloned()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Plans a keeper should call `run_due` on right now.
+    pub fn get_due_plans(&self, limit: Option<u64>) -> Vec<u64> {
+        let now = Self::now();
+        self.plans
+            .iter()
+            .filter(|(_, p)| p.is_due(now))
+            .map(|(id, _)| *id)
+            .take(limit.unwrap_or(50) as usize)
+            .collect()
+    }
+
+    pub fn is_due(&self, plan_id: u64) -> bool {
+        self.plans.get(&plan_id).map(|p| p.is_due(Self::now())).unwrap_or(false)
+    }
+
+    pub fn get_payouts(&self, plan_id: u64, from_seq: Option<u32>, limit: Option<u32>) -> Vec<PayoutRecord> {
+        let Some(plan) = self.plans.get(&plan_id) else { return vec![] };
+        let from = from_seq.unwrap_or(0);
+        let to = plan.payout_count.min(from.saturating_add(limit.unwrap_or(50)));
+        (from..to).filter_map(|seq| self.payouts.get(&(plan_id, seq)).cloned()).collect()
+    }
+
+    pub fn now_seconds(&self) -> u64 {
+        Self::now()
+    }
+}
+
+// ───────────────────────────── internals ─────────────────────────────
+
+impl Contract {
+    fn now() -> u64 {
+        env::block_timestamp_ms() / 1000
+    }
+
+    /// `near_sdk::store` collections write lazily; flush so `storage_usage` reflects the change.
+    fn storage_cost_since(&mut self, before: u64) -> u128 {
+        self.plans.flush();
+        self.plans_by_owner.flush();
+        self.payouts.flush();
+        let after = env::storage_usage();
+        let used = after.saturating_sub(before);
+        env::storage_byte_cost().as_yoctonear() * used as u128
+    }
+
+    fn owned_plan_mut(&mut self, plan_id: &u64) -> &mut Plan {
+        let caller = env::predecessor_account_id();
+        let plan = self.plans.get_mut(plan_id).expect("Plan not found");
+        require!(plan.owner == caller, "Only the plan owner can do this");
+        plan
+    }
+
+    fn validate_recipients(recipients: &[Recipient], max_recipients: u32) {
+        require!(!recipients.is_empty(), "At least one recipient is required");
+        require!(recipients.len() as u32 <= max_recipients, "Too many recipients");
+        for r in recipients {
+            require!(r.amount.0 > 0, "Recipient amount must be positive");
+        }
+    }
+
+    /// Inserts a plan and returns (id, asset). `balance` is the initial balance in base units.
+    pub(crate) fn insert_plan(&mut self, owner: AccountId, input: PlanInput, balance: u128) -> (u64, Asset) {
+        Self::validate_recipients(&input.recipients, self.max_recipients);
+        require!(
+            input.interval_seconds >= self.min_interval_seconds,
+            format!("interval_seconds must be at least {}", self.min_interval_seconds)
+        );
+        require!(input.title.len() <= 120, "Title too long");
+        let now = Self::now();
+        let next_run_at = input.start_at.unwrap_or(now);
+        if let Some(end) = input.end_at {
+            require!(end >= next_run_at, "end_at is before the first run");
+        }
+        let plan_id = self.next_plan_id;
+        self.next_plan_id += 1;
+        let mut plan = Plan {
+            id: plan_id,
+            owner: owner.clone(),
+            title: input.title,
+            asset: input.asset.clone(),
+            recipients: input.recipients,
+            interval_seconds: input.interval_seconds,
+            next_run_at,
+            end_at: input.end_at,
+            cap_per_run: U128(0),
+            balance: U128(balance),
+            status: PlanStatus::Active,
+            runs_completed: 0,
+            run_cursor: None,
+            payout_count: 0,
+            created_at: now,
+            updated_at: now,
+        };
+        let total = plan.total_per_run();
+        plan.cap_per_run = input.cap_per_run.unwrap_or(U128(total));
+        require!(total <= plan.cap_per_run.0, "Recipients total exceeds cap_per_run");
+        self.plans.insert(plan_id, plan);
+        let mut ids = self.plans_by_owner.get(&owner).cloned().unwrap_or_default();
+        ids.push(plan_id);
+        self.plans_by_owner.insert(owner.clone(), ids);
+        events::plan_created(plan_id, &owner, total, input.interval_seconds, next_run_at);
+        (plan_id, input.asset)
+    }
+
+    fn dispatch_transfer(&self, asset: &Asset, to: &AccountId, amount: u128, plan_id: u64, seq: u32) {
+        let callback = Self::ext(env::current_account_id())
+            .with_static_gas(GAS_ON_PAYOUT)
+            .on_payout(plan_id, seq, U128(amount));
+        match asset {
+            Asset::Near => Promise::new(to.clone())
+                .transfer(NearToken::from_yoctonear(amount))
+                .then(callback)
+                .detach(),
+            Asset::Ft { contract } => ext_ft::ext(contract.clone())
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(GAS_FT_TRANSFER)
+                .ft_transfer(to.clone(), U128(amount), Some(format!("standing-order plan {} payout {}", plan_id, seq)))
+                .then(callback)
+                .detach(),
+        }
+    }
+
+    fn sweep_internal(&mut self, plan_id: u64, amount: Option<u128>) -> Option<Promise> {
+        let plan = self.plans.get_mut(&plan_id).expect("Plan not found");
+        let amount = amount.unwrap_or(plan.balance.0);
+        if amount == 0 {
+            return None;
+        }
+        require!(amount <= plan.balance.0, "Sweep amount exceeds balance");
+        plan.balance = U128(plan.balance.0 - amount);
+        plan.updated_at = Self::now();
+        let owner = plan.owner.clone();
+        let asset = plan.asset.clone();
+        let balance = plan.balance.0;
+        events::plan_swept(plan_id, &owner, amount, balance);
+        let promise = match asset {
+            Asset::Near => Promise::new(owner).transfer(NearToken::from_yoctonear(amount)),
+            Asset::Ft { contract } => ext_ft::ext(contract)
+                .with_attached_deposit(ONE_YOCTO)
+                .with_static_gas(GAS_FT_TRANSFER)
+                .ft_transfer(owner, U128(amount), Some(format!("standing-order plan {} sweep", plan_id)))
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_static_gas(GAS_ON_PAYOUT)
+                        .on_sweep(plan_id, U128(amount)),
+                ),
+        };
+        Some(promise)
+    }
+}
+
+#[cfg(test)]
+mod tests;
