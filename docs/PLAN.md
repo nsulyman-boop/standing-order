@@ -7,6 +7,9 @@ custom proposal templates without changing Trezu.
 
 Deadline: 2026-11-14 23:59 UTC. Each phase ends with its own tests passing before the next starts.
 
+**Status (2026-11-08):** Phases 0–8 built and tested; live on testnet (`docs/TESTNET.md`). Outstanding: the mainnet
+cross-chain demo (`docs/MAINNET.md`, needs mainnet funds), the public GitHub repository, the X post and the submission.
+
 ## Phase map
 
 | # | Phase | Deliverable | Exit test (must pass) | Reference repos |

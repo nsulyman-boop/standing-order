@@ -40,3 +40,11 @@
 |---|---|
 | Proposal #5 filed with the `FunctionCall` kind + description compiled by Trezu's own template engine from `trezu-templates/testnet/so-create-plan.json` | https://testnet.nearblocks.io/txns/2x8osuRn1DUyag1pkBqCkeh4EjPkiCLWM6RGq3qSDGpn |
 | council2 approves → Plan #2 "Design retainer (filed from a Trezu template)" created with 300 USDC.e | https://testnet.nearblocks.io/txns/86WDFZKDHqov25uZvJnebcXHyiVN1TSdV96fPGxJ9JmE |
+
+## Later additions (2026-11-08)
+
+- Proposal #6: top up plan #1 with 1,200 USDC.e (approved). Proposal #7: new plan #3 "Core team retainer, every 10 minutes",
+  24 runs × 270 USDC.e (approved): https://testnet.nearblocks.io/txns/CUg1stp4yNrPHunuskDZWkbwAZA6f9jkwqjG2gQn2QFU
+- `dev1.standing-order.testnet` registered a destination (USDC on Base). On testnet the keeper logs
+  `route unavailable, paying on NEAR` because 1Click rejects the testnet token (`tokenIn is not valid`), and pays on NEAR.
+- Contract redeployed with `--migrate` (v0.1 → routes); plan history preserved.
