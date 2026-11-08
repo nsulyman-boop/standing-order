@@ -86,3 +86,26 @@ pub fn plan_swept(plan_id: u64, to: &AccountId, amount: u128, balance: u128) {
         json!({"plan_id": plan_id, "to": to, "amount": amount.to_string(), "balance": balance.to_string()}),
     );
 }
+
+pub fn payout_routed(plan_id: u64, seq: u32, recipient: &AccountId, deposit_address: &AccountId, destination_asset: &str, destination_address: &str, amount_out: u128) {
+    emit(
+        "payout_routed",
+        json!({
+            "plan_id": plan_id,
+            "seq": seq,
+            "recipient": recipient,
+            "deposit_address": deposit_address,
+            "destination_asset": destination_asset,
+            "destination_address": destination_address,
+            "amount_out": amount_out.to_string(),
+        }),
+    );
+}
+
+pub fn destination_set(account: &AccountId, asset_id: &str, address: &str) {
+    emit("destination_set", json!({"account": account, "asset_id": asset_id, "address": address}));
+}
+
+pub fn destination_cleared(account: &AccountId) {
+    emit("destination_cleared", json!({"account": account}));
+}

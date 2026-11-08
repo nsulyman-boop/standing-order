@@ -5,6 +5,7 @@
 //! Only the plan owner can pause, resume, update, cancel or sweep.
 
 mod events;
+pub mod routes;
 pub mod types;
 
 use near_sdk::json_types::U128;
@@ -22,6 +23,8 @@ const GAS_PER_NEAR_PAYOUT: Gas = Gas::from_tgas(10);
 const GAS_PER_FT_PAYOUT: Gas = Gas::from_tgas(40);
 const GAS_FT_TRANSFER: Gas = Gas::from_tgas(20);
 const GAS_ON_PAYOUT: Gas = Gas::from_tgas(5);
+/// Extra gas budgeted per payout when signed 1Click quotes must be verified.
+const GAS_ROUTE_VERIFY: Gas = Gas::from_tgas(15);
 /// Gas kept back after the last payout of a call for bookkeeping.
 const GAS_RESERVE: Gas = Gas::from_tgas(20);
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
@@ -38,6 +41,22 @@ enum StorageKey {
     PlansByOwner,
     Payouts,
     StorageCredits,
+    Destinations,
+    Routes,
+}
+
+/// State layout before cross-chain routes (v0.1). Used by `migrate`.
+#[near(serializers = [borsh])]
+pub struct ContractV1 {
+    owner_id: AccountId,
+    plans: IterableMap<u64, Plan>,
+    plans_by_owner: LookupMap<AccountId, Vec<u64>>,
+    payouts: LookupMap<(u64, u32), PayoutRecord>,
+    storage_credits: LookupMap<AccountId, u128>,
+    next_plan_id: u64,
+    sponsor_storage: bool,
+    min_interval_seconds: u64,
+    max_recipients: u32,
 }
 
 #[near(contract_state)]
@@ -56,6 +75,12 @@ pub struct Contract {
     sponsor_storage: bool,
     min_interval_seconds: u64,
     max_recipients: u32,
+    /// Recipient-registered cross-chain payout destinations.
+    destinations: LookupMap<AccountId, Destination>,
+    /// (plan_id, seq) -> verified 1Click route used for that payout.
+    routes: LookupMap<(u64, u32), RouteRecord>,
+    /// Key that signs 1Click quotes. Owner-updatable in case 1Click rotates it.
+    oneclick_public_key: [u8; 32],
 }
 
 #[near]
@@ -72,6 +97,30 @@ impl Contract {
             sponsor_storage,
             min_interval_seconds: min_interval_seconds.unwrap_or(60),
             max_recipients: 100,
+            destinations: LookupMap::new(StorageKey::Destinations),
+            routes: LookupMap::new(StorageKey::Routes),
+            oneclick_public_key: routes::decode_public_key(routes::ONE_CLICK_MANAGER_PUB_KEY).expect("key"),
+        }
+    }
+
+    /// Upgrade state from v0.1 (no cross-chain routes). Only the contract account can call it.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        let old: ContractV1 = env::state_read().expect("no previous state");
+        Self {
+            owner_id: old.owner_id,
+            plans: old.plans,
+            plans_by_owner: old.plans_by_owner,
+            payouts: old.payouts,
+            storage_credits: old.storage_credits,
+            next_plan_id: old.next_plan_id,
+            sponsor_storage: old.sponsor_storage,
+            min_interval_seconds: old.min_interval_seconds,
+            max_recipients: old.max_recipients,
+            destinations: LookupMap::new(StorageKey::Destinations),
+            routes: LookupMap::new(StorageKey::Routes),
+            oneclick_public_key: routes::decode_public_key(routes::ONE_CLICK_MANAGER_PUB_KEY).expect("key"),
         }
     }
 
@@ -123,9 +172,16 @@ impl Contract {
 
     /// Execute the next due run (or continue a run in progress). Permissionless.
     /// Call with up to 300 TGas; large recipient lists are paid over several calls.
-    pub fn run_due(&mut self, plan_id: u64) -> RunOutcome {
+    ///
+    /// `routes` optionally carries signed 1Click quotes for recipients who registered a
+    /// cross-chain destination. Each quote is verified against the 1Click key and bound to the
+    /// recipient's registered asset/address, the plan token and the exact payout amount, with the
+    /// recipient's own account as the refund target. Only then is the payout sent to the quote's
+    /// deposit address instead of the recipient's NEAR account.
+    pub fn run_due(&mut self, plan_id: u64, routes: Option<Vec<QuotedRoute>>) -> RunOutcome {
         let now = Self::now();
         let mut plan = self.plans.get(&plan_id).expect("Plan not found").clone();
+        let routes = routes.unwrap_or_default();
 
         match plan.status {
             PlanStatus::Paused => return RunOutcome::Paused,
@@ -149,10 +205,13 @@ impl Contract {
             plan.run_cursor = Some(0);
         }
 
-        let gas_per_payout = match plan.asset {
+        let mut gas_per_payout = match plan.asset {
             Asset::Near => GAS_PER_NEAR_PAYOUT,
             Asset::Ft { .. } => GAS_PER_FT_PAYOUT,
         };
+        if !routes.is_empty() {
+            gas_per_payout = Gas::from_gas(gas_per_payout.as_gas() + GAS_ROUTE_VERIFY.as_gas());
+        }
         let run_index = plan.runs_completed;
         let len = plan.recipients.len() as u32;
         let mut cursor = plan.run_cursor.unwrap_or(0);
@@ -166,10 +225,20 @@ impl Contract {
             }
             let recipient = plan.recipients[cursor as usize].clone();
             let amount = recipient.amount.0;
+            // Cross-chain: pay the verified 1Click deposit address instead of the NEAR account.
+            let route = routes
+                .iter()
+                .find(|r| r.recipient == recipient.account_id)
+                .map(|r| self.verify_route(&plan, &recipient, &r.quote, now));
+            let pay_to = route.as_ref().map(|r| r.deposit_address.clone()).unwrap_or_else(|| recipient.account_id.clone());
             // Debit first; a failed transfer re-credits in the callback.
             plan.balance = U128(plan.balance.0.checked_sub(amount).expect("balance underflow"));
             let seq = plan.payout_count;
             plan.payout_count += 1;
+            if let Some(r) = &route {
+                self.routes.insert((plan_id, seq), r.clone());
+                events::payout_routed(plan_id, seq, &recipient.account_id, &r.deposit_address, &r.destination_asset, &r.destination_address, r.amount_out.0);
+            }
             self.payouts.insert(
                 (plan_id, seq),
                 PayoutRecord {
@@ -184,7 +253,7 @@ impl Contract {
                 },
             );
             events::payout_dispatched(plan_id, seq, run_index, &recipient.account_id, amount);
-            self.dispatch_transfer(&plan.asset, &recipient.account_id, amount, plan_id, seq);
+            self.dispatch_transfer(&plan.asset, &pay_to, amount, plan_id, seq);
             cursor += 1;
             sent += 1;
         }
@@ -235,13 +304,66 @@ impl Contract {
         events::plan_status("plan_paused", plan_id, &by);
     }
 
-    pub fn resume_plan(&mut self, plan_id: u64) {
+    /// Resume a paused plan. By default missed periods are paid as back pay, one per `run_due`
+    /// call; pass `skip_missed: true` to forget them and continue from the next scheduled slot.
+    pub fn resume_plan(&mut self, plan_id: u64, skip_missed: Option<bool>) {
         let by = env::predecessor_account_id();
+        let now = Self::now();
         let plan = self.owned_plan_mut(&plan_id);
         require!(plan.status == PlanStatus::Paused, "Plan is not paused");
         plan.status = PlanStatus::Active;
-        plan.updated_at = Self::now();
+        if skip_missed.unwrap_or(false) && now >= plan.next_run_at {
+            let periods = (now - plan.next_run_at) / plan.interval_seconds + 1;
+            plan.next_run_at += periods * plan.interval_seconds;
+        }
+        plan.updated_at = now;
         events::plan_status("plan_resumed", plan_id, &by);
+    }
+
+    // ───────────────────────────── cross-chain destinations ─────────────────────────────
+
+    /// A recipient declares where cross-chain payouts should land. `asset_id` is a NEAR Intents
+    /// asset id (see https://1click.chaindefuser.com/v0/tokens), `address` the recipient's
+    /// address on that chain. Attach a little NEAR for storage; the excess is refunded.
+    #[payable]
+    pub fn register_destination(&mut self, asset_id: String, address: String) {
+        let who = env::predecessor_account_id();
+        require!(asset_id.starts_with("nep141:") && asset_id.len() <= 128, "asset_id must be a NEAR Intents asset id");
+        require!(!address.is_empty() && address.len() <= 128, "address required");
+        let deposit = env::attached_deposit().as_yoctonear();
+        let before = env::storage_usage();
+        self.destinations.insert(who.clone(), Destination { asset_id: asset_id.clone(), address: address.clone(), updated_at: Self::now() });
+        self.destinations.flush();
+        let cost = env::storage_byte_cost().as_yoctonear() * env::storage_usage().saturating_sub(before) as u128;
+        require!(deposit >= cost, format!("Attach at least {} yoctoNEAR for storage", cost));
+        if deposit > cost {
+            Promise::new(who.clone()).transfer(NearToken::from_yoctonear(deposit - cost)).detach();
+        }
+        events::destination_set(&who, &asset_id, &address);
+    }
+
+    /// Go back to being paid on NEAR.
+    pub fn clear_destination(&mut self) {
+        let who = env::predecessor_account_id();
+        self.destinations.remove(&who);
+        events::destination_cleared(&who);
+    }
+
+    pub fn get_destination(&self, account_id: AccountId) -> Option<Destination> {
+        self.destinations.get(&account_id).cloned()
+    }
+
+    /// Recipients of a plan who have a cross-chain destination, with it. The keeper quotes these.
+    pub fn get_plan_destinations(&self, plan_id: u64) -> Vec<(AccountId, Destination)> {
+        let Some(plan) = self.plans.get(&plan_id) else { return vec![] };
+        plan.recipients
+            .iter()
+            .filter_map(|r| self.destinations.get(&r.account_id).map(|d| (r.account_id.clone(), d.clone())))
+            .collect()
+    }
+
+    pub fn get_route(&self, plan_id: u64, seq: u32) -> Option<RouteRecord> {
+        self.routes.get(&(plan_id, seq)).cloned()
     }
 
     /// Update recipients, cap, interval, title or end date. Not allowed mid-run.
@@ -374,8 +496,11 @@ impl Contract {
 
     // ───────────────────────────── admin ─────────────────────────────
 
-    pub fn set_config(&mut self, sponsor_storage: Option<bool>, min_interval_seconds: Option<u64>, max_recipients: Option<u32>) {
+    pub fn set_config(&mut self, sponsor_storage: Option<bool>, min_interval_seconds: Option<u64>, max_recipients: Option<u32>, oneclick_public_key: Option<String>) {
         require!(env::predecessor_account_id() == self.owner_id, "Only the contract owner");
+        if let Some(pk) = oneclick_public_key {
+            self.oneclick_public_key = routes::decode_public_key(&pk).unwrap_or_else(|| env::panic_str("oneclick_public_key must be ed25519:<base58>"));
+        }
         if let Some(v) = sponsor_storage {
             self.sponsor_storage = v;
         }
@@ -396,6 +521,7 @@ impl Contract {
             min_interval_seconds: self.min_interval_seconds,
             max_recipients: self.max_recipients,
             plan_count: self.next_plan_id - 1,
+            oneclick_public_key: routes::encode_public_key(&self.oneclick_public_key),
         }
     }
 
@@ -546,6 +672,34 @@ impl Contract {
         self.plans_by_owner.insert(owner.clone(), ids);
         events::plan_created(plan_id, &owner, total, input.interval_seconds, next_run_at);
         (plan_id, input.asset)
+    }
+
+    /// Verify a 1Click quote and bind it to this plan, recipient and amount. Panics with the
+    /// reason on any mismatch so a buggy or malicious keeper cannot redirect funds.
+    fn verify_route(&self, plan: &Plan, recipient: &Recipient, quote_json: &str, now: u64) -> RouteRecord {
+        let Asset::Ft { contract } = &plan.asset else {
+            env::panic_str("Cross-chain routes are only supported for token plans");
+        };
+        let dest = self
+            .destinations
+            .get(&recipient.account_id)
+            .unwrap_or_else(|| env::panic_str(&format!("{} has no registered destination", recipient.account_id)));
+        let q = routes::verify_quote(quote_json, &self.oneclick_public_key).unwrap_or_else(|e| env::panic_str(&format!("Route for {}: {}", recipient.account_id, e)));
+        require!(q.origin_asset == format!("nep141:{}", contract), "Route origin asset does not match the plan token");
+        require!(q.amount_in == recipient.amount.0, "Route amount does not match the recipient's payout");
+        require!(q.destination_asset == dest.asset_id, "Route destination asset differs from the recipient's registration");
+        require!(q.recipient.eq_ignore_ascii_case(&dest.address), "Route recipient address differs from the recipient's registration");
+        require!(q.refund_to == recipient.account_id.as_str(), "Route refund target must be the recipient's NEAR account");
+        require!(q.deadline_seconds > now + 60, "Route deposit address expires too soon");
+        RouteRecord {
+            deposit_address: q.deposit_address,
+            destination_asset: q.destination_asset,
+            destination_address: q.recipient,
+            amount_out: U128(q.amount_out),
+            min_amount_out: U128(q.min_amount_out),
+            deadline: q.deadline_seconds,
+            correlation_id: q.correlation_id,
+        }
     }
 
     fn dispatch_transfer(&self, asset: &Asset, to: &AccountId, amount: u128, plan_id: u64, seq: u32) {

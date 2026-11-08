@@ -86,7 +86,7 @@ fn run_due_pays_once_per_period_and_advances_schedule() {
     let before = c.get_plan(id).unwrap().balance.0;
 
     testing_env!(ctx(accounts(5), 0, 1_000).build()); // anyone can trigger
-    let out = c.run_due(id);
+    let out = c.run_due(id, None);
     assert_eq!(out, RunOutcome::Sent { run_index: 0, sent: 2, remaining: 0, completed: true });
     let plan = c.get_plan(id).unwrap();
     assert_eq!(plan.balance.0, before - 3 * NEAR);
@@ -99,7 +99,7 @@ fn run_due_pays_once_per_period_and_advances_schedule() {
     assert_eq!(payouts[1].status, PayoutStatus::Pending);
 
     // Same period again: nothing happens.
-    assert_eq!(c.run_due(id), RunOutcome::NotDue { next_run_at: 4_600 });
+    assert_eq!(c.run_due(id, None), RunOutcome::NotDue { next_run_at: 4_600 });
     assert_eq!(c.get_plan(id).unwrap().balance.0, before - 3 * NEAR);
     assert!(!c.is_due(id));
 
@@ -107,11 +107,11 @@ fn run_due_pays_once_per_period_and_advances_schedule() {
     testing_env!(ctx(accounts(5), 0, 9_000).build());
     assert!(c.is_due(id));
     assert_eq!(c.get_due_plans(None), vec![id]);
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { run_index: 1, completed: true, .. }));
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { run_index: 1, completed: true, .. }));
     assert_eq!(c.get_plan(id).unwrap().next_run_at, 8_200);
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { run_index: 2, completed: true, .. }));
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { run_index: 2, completed: true, .. }));
     assert_eq!(c.get_plan(id).unwrap().next_run_at, 11_800);
-    assert_eq!(c.run_due(id), RunOutcome::NotDue { next_run_at: 11_800 });
+    assert_eq!(c.run_due(id, None), RunOutcome::NotDue { next_run_at: 11_800 });
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn run_due_refuses_partial_runs_when_underfunded() {
     testing_env!(ctx(dao(), 2 * NEAR, 1_000).build());
     let id = c.create_plan(input(3600, &[NEAR, 2 * NEAR]));
     testing_env!(ctx(accounts(5), 0, 1_000).build());
-    let out = c.run_due(id);
+    let out = c.run_due(id, None);
     assert!(matches!(out, RunOutcome::Underfunded { needed, .. } if needed.0 == 3 * NEAR));
     assert!(!c.is_due(id), "underfunded plans are not due, so keepers stop polling them");
     assert!(c.get_due_plans(None).is_empty());
@@ -136,7 +136,7 @@ fn run_due_refuses_partial_runs_when_underfunded() {
     assert!(c.get_underfunded_plans(None).is_empty());
     assert_eq!(c.get_due_plans(None), vec![id]);
     testing_env!(ctx(accounts(5), 0, 1_000).build());
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { completed: true, .. }));
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { completed: true, .. }));
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn failed_payout_recredits_balance() {
     testing_env!(ctx(dao(), 10 * NEAR, 1_000).build());
     let id = c.create_plan(input(3600, &[NEAR]));
     testing_env!(ctx(accounts(5), 0, 1_000).build());
-    c.run_due(id);
+    c.run_due(id, None);
     let after_send = c.get_plan(id).unwrap().balance.0;
 
     // Callback runs as the contract itself.
@@ -162,7 +162,7 @@ fn successful_payout_marks_sent() {
     testing_env!(ctx(dao(), 10 * NEAR, 1_000).build());
     let id = c.create_plan(input(3600, &[NEAR]));
     testing_env!(ctx(accounts(5), 0, 1_000).build());
-    c.run_due(id);
+    c.run_due(id, None);
     testing_env!(ctx(accounts(0), 0, 1_001).build());
     c.on_payout(id, 0, U128(NEAR), Ok(()));
     assert_eq!(c.get_payouts(id, None, None)[0].status, PayoutStatus::Sent);
@@ -177,11 +177,11 @@ fn pause_blocks_runs_and_resume_restores() {
     assert_eq!(c.get_plan(id).unwrap().status, PlanStatus::Paused);
     assert!(c.get_due_plans(None).is_empty());
     testing_env!(ctx(accounts(5), 0, 5_000).build());
-    assert_eq!(c.run_due(id), RunOutcome::Paused);
+    assert_eq!(c.run_due(id, None), RunOutcome::Paused);
     testing_env!(ctx(dao(), 0, 5_000).build());
-    c.resume_plan(id);
+    c.resume_plan(id, None);
     testing_env!(ctx(accounts(5), 0, 5_000).build());
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { .. }));
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { .. }));
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn cancel_sweeps_balance_and_stops_runs() {
     assert_eq!(plan.balance.0, 0);
     assert!(get_logs().iter().any(|l| l.contains("plan_swept")));
     testing_env!(ctx(accounts(5), 0, 9_000).build());
-    assert_eq!(c.run_due(id), RunOutcome::Cancelled);
+    assert_eq!(c.run_due(id, None), RunOutcome::Cancelled);
 }
 
 #[test]
@@ -239,9 +239,9 @@ fn end_date_stops_runs_after_last_period() {
     i.end_at = Some(4_600); // exactly two runs: t=1000 and t=4600
     let id = c.create_plan(i);
     testing_env!(ctx(accounts(5), 0, 20_000).build());
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { run_index: 0, .. }));
-    assert!(matches!(c.run_due(id), RunOutcome::Sent { run_index: 1, .. }));
-    assert_eq!(c.run_due(id), RunOutcome::Ended);
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { run_index: 0, .. }));
+    assert!(matches!(c.run_due(id, None), RunOutcome::Sent { run_index: 1, .. }));
+    assert_eq!(c.run_due(id, None), RunOutcome::Ended);
     assert!(c.get_due_plans(None).is_empty());
 }
 
@@ -297,7 +297,7 @@ fn large_runs_continue_across_calls_when_gas_is_short() {
     let mut b = ctx(accounts(5), 0, 1_000);
     b.prepaid_gas(Gas::from_tgas(80));
     testing_env!(b.build());
-    let first = c.run_due(id);
+    let first = c.run_due(id, None);
     let RunOutcome::Sent { sent, remaining, completed, run_index } = first else { panic!("expected Sent") };
     assert_eq!(run_index, 0);
     assert!(sent > 0 && !completed && remaining == 40 - sent, "run should be split: {:?}", first);
@@ -310,7 +310,7 @@ fn large_runs_continue_across_calls_when_gas_is_short() {
         let mut b = ctx(accounts(5), 0, 1_000);
         b.prepaid_gas(Gas::from_tgas(80));
         testing_env!(b.build());
-        if let RunOutcome::Sent { sent, .. } = c.run_due(id) {
+        if let RunOutcome::Sent { sent, .. } = c.run_due(id, None) {
             total_sent += sent;
         }
         guard += 1;
@@ -332,7 +332,7 @@ fn cannot_update_mid_run() {
     let mut b = ctx(accounts(5), 0, 1_000);
     b.prepaid_gas(Gas::from_tgas(80));
     testing_env!(b.build());
-    c.run_due(id);
+    c.run_due(id, None);
     testing_env!(ctx(dao(), NEAR, 1_000).build());
     c.update_plan(id, PlanUpdate { title: Some("x".into()), ..Default::default() });
 }
@@ -349,9 +349,52 @@ fn storage_deposit_tracks_credits() {
 fn only_contract_owner_sets_config() {
     let mut c = new_contract();
     testing_env!(ctx(accounts(0), 0, 1_000).build());
-    c.set_config(Some(false), Some(10), Some(5));
+    c.set_config(Some(false), Some(10), Some(5), None);
     let cfg = c.get_config();
     assert!(!cfg.sponsor_storage);
     assert_eq!(cfg.min_interval_seconds, 10);
     assert_eq!(cfg.max_recipients, 5);
+}
+
+#[test]
+fn resume_can_skip_missed_periods() {
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 10 * NEAR, 1_000).build());
+    let id = c.create_plan(input(3600, &[NEAR]));
+    c.pause_plan(id);
+    // Three periods later: resume with skip_missed → next run is the next aligned slot, no back pay.
+    testing_env!(ctx(dao(), 0, 1_000 + 3 * 3600 + 100).build());
+    c.resume_plan(id, Some(true));
+    let plan = c.get_plan(id).unwrap();
+    assert_eq!(plan.next_run_at, 1_000 + 4 * 3600);
+    assert!(!c.is_due(id));
+
+    // Default resume keeps back pay.
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 10 * NEAR, 1_000).build());
+    let id = c.create_plan(input(3600, &[NEAR]));
+    c.pause_plan(id);
+    testing_env!(ctx(dao(), 0, 1_000 + 3 * 3600 + 100).build());
+    c.resume_plan(id, None);
+    assert_eq!(c.get_plan(id).unwrap().next_run_at, 1_000);
+    assert!(c.is_due(id));
+}
+
+#[test]
+fn register_destination_requires_intents_asset_id() {
+    let mut c = new_contract();
+    testing_env!(ctx(accounts(2), NEAR / 10, 1_000).build());
+    c.register_destination("nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near".into(), "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".into());
+    let d = c.get_destination(accounts(2)).unwrap();
+    assert_eq!(d.address, "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+    c.clear_destination();
+    assert!(c.get_destination(accounts(2)).is_none());
+}
+
+#[test]
+#[should_panic(expected = "asset_id must be a NEAR Intents asset id")]
+fn register_destination_rejects_bad_asset() {
+    let mut c = new_contract();
+    testing_env!(ctx(accounts(2), NEAR / 10, 1_000).build());
+    c.register_destination("base-usdc".into(), "0xabc".into());
 }

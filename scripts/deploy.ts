@@ -1,11 +1,21 @@
 // Deploy the Standing Order contract and initialise it (idempotent).
+// Usage: tsx scripts/deploy.ts [--migrate]   (--migrate runs `migrate` in the same transaction as the deploy)
 import fs from "node:fs";
+import { actions } from "near-api-js";
 import { account, cfg, log, provider, TGAS, view } from "./lib/near.ts";
 
 const wasm = fs.readFileSync(new URL("../contract/target/wasm32-unknown-unknown/release/standing_order.wasm", import.meta.url));
 const owner = account(cfg.contract);
-log("deploying", `${wasm.length} bytes to ${cfg.contract}`);
-await owner.deployContract(new Uint8Array(wasm));
+const migrate = process.argv.includes("--migrate");
+log("deploying", `${wasm.length} bytes to ${cfg.contract}${migrate ? " + migrate" : ""}`);
+if (migrate) {
+  await owner.signAndSendTransaction({
+    receiverId: cfg.contract,
+    actions: [actions.deployContract(new Uint8Array(wasm)), actions.functionCall("migrate", {}, TGAS(50), 0n)],
+  });
+} else {
+  await owner.deployContract(new Uint8Array(wasm));
+}
 try {
   const config = await view(cfg.contract, "get_config");
   log("already initialised", config);

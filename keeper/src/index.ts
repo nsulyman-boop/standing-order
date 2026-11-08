@@ -12,6 +12,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Account, JsonRpcProvider, type KeyPairString } from "near-api-js";
+import { quoteRoute, swapStatus, type Destination, type Mode, type Route, type RouteLog } from "./routes.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 loadDotEnv(path.join(here, "..", ".env"));
@@ -24,6 +25,7 @@ const KEEPER_KEY = must("KEEPER_KEY") as KeyPairString;
 const POLL_SECONDS = Number(process.env.POLL_SECONDS ?? 15);
 const ONCE = process.argv.includes("--once");
 const LOG_FILE = process.env.KEEPER_LOG ?? path.join(here, "..", "data", "runs.jsonl");
+const CROSSCHAIN: Mode = (process.env.CROSSCHAIN as Mode) ?? (NETWORK === "mainnet" ? "live" : "dry");
 const TGAS_300 = 300n * 10n ** 12n;
 
 const provider = new JsonRpcProvider({ url: RPC_URL });
@@ -38,7 +40,10 @@ const state = {
   payoutsSent: 0,
   lastTick: null as string | null,
   lastError: null as string | null,
+  crosschain: CROSSCHAIN,
   recent: [] as Array<Record<string, unknown>>,
+  /** Routed payouts we are still tracking on 1Click, by deposit address. */
+  swaps: {} as Record<string, { plan_id: number; recipient: string; status: string; updatedAt: string; details?: unknown }>,
 };
 
 async function tick(): Promise<void> {
@@ -50,11 +55,17 @@ async function tick(): Promise<void> {
     return;
   }
   for (const planId of due) {
+    const { routes, routeLogs } = await buildRoutes(planId);
     // A run with many recipients is paid over several calls; keep going until it completes.
     for (let i = 0; i < 20; i++) {
-      const res = await keeper.callFunctionRaw({ contractId: CONTRACT, methodName: "run_due", args: { plan_id: planId }, gas: TGAS_300 });
+      const res = await keeper.callFunctionRaw({ contractId: CONTRACT, methodName: "run_due", args: { plan_id: planId, routes: routes.length ? routes : null }, gas: TGAS_300 });
       const outcome = decode<Outcome>(res);
-      const entry = { at: new Date().toISOString(), plan_id: planId, outcome, tx: res.transaction.hash };
+      const entry = { at: new Date().toISOString(), plan_id: planId, outcome, tx: res.transaction.hash, routes: routeLogs.length ? routeLogs : undefined };
+      for (const r of routeLogs) {
+        if (r.ok && r.mode === "live" && r.depositAddress) {
+          state.swaps[r.depositAddress] = { plan_id: planId, recipient: r.recipient, status: "SUBMITTED", updatedAt: new Date().toISOString() };
+        }
+      }
       record(entry);
       if (typeof outcome === "object" && "Sent" in outcome) {
         state.payoutsSent += outcome.Sent.sent;
@@ -69,14 +80,54 @@ async function tick(): Promise<void> {
   }
 }
 
+/** For every recipient of the plan with a registered destination, obtain a signed 1Click quote. */
+async function buildRoutes(planId: number): Promise<{ routes: Route[]; routeLogs: RouteLog[] }> {
+  const routes: Route[] = [];
+  const routeLogs: RouteLog[] = [];
+  if (CROSSCHAIN === "off") return { routes, routeLogs };
+  const plan: any = await provider.callFunction({ contractId: CONTRACT, method: "get_plan", args: { plan_id: planId } });
+  const token = plan?.asset?.Ft?.contract;
+  if (!token) return { routes, routeLogs }; // native NEAR plans are paid on NEAR
+  const dests = (await provider.callFunction<Array<[string, Destination]>>({ contractId: CONTRACT, method: "get_plan_destinations", args: { plan_id: planId } })) ?? [];
+  for (const [recipient, dest] of dests) {
+    const amount = plan.recipients.find((r: any) => r.account_id === recipient)?.amount;
+    if (!amount) continue;
+    const { route, info } = await quoteRoute(CROSSCHAIN, token, recipient, amount, dest, log);
+    routeLogs.push(info);
+    if (route) routes.push(route);
+  }
+  return { routes, routeLogs };
+}
+
+/** Follow routed payouts until 1Click reports a final status. */
+async function trackSwaps(): Promise<void> {
+  for (const [addr, s] of Object.entries(state.swaps)) {
+    if (["SUCCESS", "REFUNDED", "FAILED"].includes(s.status)) continue;
+    try {
+      const r = await swapStatus(addr);
+      if (r && r.status !== s.status) {
+        s.status = r.status;
+        s.updatedAt = new Date().toISOString();
+        s.details = r.details;
+        const entry = { at: s.updatedAt, event: "swap", deposit_address: addr, plan_id: s.plan_id, recipient: s.recipient, status: r.status, destinationTx: r.details?.destinationChainTxHashes };
+        record(entry);
+        log("swap status", entry);
+      }
+    } catch (e) {
+      log("swap status error", { addr, error: String(e).slice(0, 200) });
+    }
+  }
+}
+
 async function main(): Promise<void> {
-  log("keeper starting", { network: NETWORK, rpc: RPC_URL, contract: CONTRACT, account: KEEPER_ACCOUNT, pollSeconds: POLL_SECONDS, once: ONCE });
+  log("keeper starting", { network: NETWORK, rpc: RPC_URL, contract: CONTRACT, account: KEEPER_ACCOUNT, pollSeconds: POLL_SECONDS, once: ONCE, crosschain: CROSSCHAIN });
   await assertKeyIsRestricted();
   if (process.env.KEEPER_HTTP_PORT) startStatusServer(Number(process.env.KEEPER_HTTP_PORT));
   let backoff = POLL_SECONDS;
   for (;;) {
     try {
       await tick();
+      await trackSwaps();
       state.lastError = null;
       backoff = POLL_SECONDS;
     } catch (e) {

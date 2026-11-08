@@ -156,6 +156,7 @@ pub struct Config {
     pub min_interval_seconds: u64,
     pub max_recipients: u32,
     pub plan_count: u64,
+    pub oneclick_public_key: String,
 }
 
 /// Message accepted by `ft_on_transfer`.
@@ -165,4 +166,38 @@ pub struct Config {
 pub enum FtMessage {
     FundPlan { plan_id: u64 },
     CreatePlan { plan: PlanInput },
+}
+
+/// Where a recipient wants to be paid when a plan is paid in a bridgeable token.
+/// `asset_id` is a NEAR Intents asset id such as `nep141:base-0x8335…omft.near`; `address` is
+/// the recipient's address on that chain.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Destination {
+    pub asset_id: String,
+    pub address: String,
+    pub updated_at: u64,
+}
+
+/// A 1Click quote the keeper obtained for one recipient of one run. The contract verifies the
+/// 1Click signature and all bindings before paying the quote's deposit address.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct QuotedRoute {
+    pub recipient: AccountId,
+    /// Raw 1Click quote response JSON (`quoteRequest`, `quote`, `timestamp`, `signature`, …).
+    pub quote: String,
+}
+
+/// Stored for every routed payout so anyone can audit where the funds went.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug)]
+pub struct RouteRecord {
+    pub deposit_address: AccountId,
+    pub destination_asset: String,
+    pub destination_address: String,
+    pub amount_out: U128,
+    pub min_amount_out: U128,
+    pub deadline: u64,
+    pub correlation_id: String,
 }
