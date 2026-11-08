@@ -11,7 +11,7 @@ use near_sdk::json_types::U128;
 use near_sdk::store::{IterableMap, LookupMap};
 use near_sdk::{
     env, ext_contract, log, near, require, AccountId, BorshStorageKey, Gas, NearToken,
-    PanicOnDefault, Promise, PromiseError,
+    PanicOnDefault, Promise, PromiseError, PromiseOrValue,
 };
 
 pub use types::*;
@@ -320,6 +320,41 @@ impl Contract {
         }
     }
 
+    // ───────────────────────────── NEP-141 receiver ─────────────────────────────
+
+    /// Receive fungible tokens from `ft_transfer_call` (this is what a Sputnik DAO `Transfer`
+    /// proposal with a `msg` does). `msg` is JSON:
+    /// `{"action":"fund_plan","plan_id":1}` or `{"action":"create_plan","plan":{...PlanInput}}`.
+    /// Storage for a new plan is paid from the sender's storage credits, or sponsored when enabled.
+    /// Any failure panics, which makes the token contract refund the full amount to the sender.
+    pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128> {
+        let token = env::predecessor_account_id();
+        require!(amount.0 > 0, "Amount must be positive");
+        let parsed: FtMessage = near_sdk::serde_json::from_str(&msg).unwrap_or_else(|_| {
+            env::panic_str("msg must be {\"action\":\"fund_plan\",\"plan_id\":N} or {\"action\":\"create_plan\",\"plan\":{...}}")
+        });
+        match parsed {
+            FtMessage::FundPlan { plan_id } => {
+                let plan = self.plans.get_mut(&plan_id).expect("Plan not found");
+                require!(plan.asset == Asset::Ft { contract: token }, "Token does not match the plan asset");
+                require!(plan.status != PlanStatus::Cancelled, "Plan is cancelled");
+                plan.balance = U128(plan.balance.0.checked_add(amount.0).expect("overflow"));
+                plan.updated_at = Self::now();
+                let balance = plan.balance.0;
+                events::plan_funded(plan_id, &sender_id, amount.0, balance);
+            }
+            FtMessage::CreatePlan { plan } => {
+                require!(plan.asset == Asset::Ft { contract: token }, "plan.asset must be the token being transferred");
+                let before = env::storage_usage();
+                let (plan_id, _) = self.insert_plan(sender_id.clone(), plan, amount.0);
+                let cost = self.storage_cost_since(before);
+                self.charge_storage(&sender_id, cost);
+                events::plan_funded(plan_id, &sender_id, amount.0, amount.0);
+            }
+        }
+        PromiseOrValue::Value(U128(0))
+    }
+
     // ───────────────────────────── storage credits ─────────────────────────────
 
     /// Prepay storage for plans created through `ft_transfer_call`.
@@ -423,6 +458,24 @@ impl Contract {
         let after = env::storage_usage();
         let used = after.saturating_sub(before);
         env::storage_byte_cost().as_yoctonear() * used as u128
+    }
+
+    /// Pay `cost` yoctoNEAR of storage from `payer`'s credits, or sponsor it when allowed.
+    fn charge_storage(&mut self, payer: &AccountId, cost: u128) {
+        if cost == 0 {
+            return;
+        }
+        let credits = self.storage_credits.get(payer).copied().unwrap_or(0);
+        if credits >= cost {
+            self.storage_credits.insert(payer.clone(), credits - cost);
+        } else if self.sponsor_storage {
+            log!("Storage of {} yoctoNEAR for {} sponsored by the contract", cost, payer);
+        } else {
+            env::panic_str(&format!(
+                "Insufficient storage credits: need {} yoctoNEAR, have {}. Call storage_deposit first.",
+                cost, credits
+            ));
+        }
     }
 
     fn owned_plan_mut(&mut self, plan_id: &u64) -> &mut Plan {

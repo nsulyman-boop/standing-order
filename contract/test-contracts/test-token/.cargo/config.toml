@@ -1,0 +1,4 @@
+# near-sdk >= 5.30 compiles host calls such as env::panic_str only when the `near` cfg is set
+# (cargo-near sets it automatically). Without it panics become bare `unreachable` traps.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "near"]

@@ -146,3 +146,12 @@ pub struct Config {
     pub max_recipients: u32,
     pub plan_count: u64,
 }
+
+/// Message accepted by `ft_on_transfer`.
+#[near(serializers = [json])]
+#[serde(tag = "action", rename_all = "snake_case")]
+#[derive(Clone, Debug)]
+pub enum FtMessage {
+    FundPlan { plan_id: u64 },
+    CreatePlan { plan: PlanInput },
+}
