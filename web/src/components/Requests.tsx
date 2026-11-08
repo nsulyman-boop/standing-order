@@ -1,0 +1,47 @@
+import type { Proposal } from "../near";
+import { proposalTouchesStandingOrder } from "../near";
+import { DAO, EXPLORER } from "../config";
+
+function label(info: { kind: string; method?: string; args?: any }): string {
+  switch (info.method) {
+    case "create_plan": return `Start recurring payroll: ${info.args?.msg?.plan?.title ?? ""}`;
+    case "fund_plan": return `Top up plan #${info.args?.msg?.plan_id}`;
+    case "pause_plan": return `Pause plan #${info.args?.plan_id}`;
+    case "resume_plan": return `Resume plan #${info.args?.plan_id}${info.args?.skip_missed ? " (skip missed)" : ""}`;
+    case "cancel_plan": return `Cancel plan #${info.args?.plan_id} and return funds`;
+    case "update_plan": return `Update plan #${info.args?.plan_id}`;
+    default: return info.method ?? info.kind;
+  }
+}
+
+function summary(desc: string): string {
+  const m = desc.match(/Summary: (.*)$/);
+  return m ? m[1] : desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
+}
+
+export function Requests({ proposals }: { proposals: Proposal[] }) {
+  const ours = proposals.map((p) => ({ p, info: proposalTouchesStandingOrder(p) })).filter((x) => x.info);
+  return (
+    <div className="card pad">
+      <div className="section-head">
+        <h2>Treasury requests</h2>
+        <a className="tiny" href={`${EXPLORER}/address/${DAO}`} target="_blank" rel="noreferrer">{DAO} ↗</a>
+      </div>
+      {ours.length === 0 ? (
+        <div className="empty">No Standing Order proposals on this DAO yet.</div>
+      ) : (
+        ours.map(({ p, info }) => (
+          <div className="req" key={p.id}>
+            <div className="id">#{p.id}</div>
+            <div>
+              <div className="what">{label(info!)}</div>
+              <div className="desc">{summary(p.description)}</div>
+              <div className="tiny mono">by {p.proposer} · {Object.keys(p.votes ?? {}).length} vote{Object.keys(p.votes ?? {}).length === 1 ? "" : "s"}{p.description.includes("[trezu-tmpl:") ? " · via Trezu template" : ""}</div>
+            </div>
+            <span className={`chip ${p.status === "Approved" ? "active" : p.status === "InProgress" ? "blue" : "neutral"}`}>{p.status === "InProgress" ? "Voting" : p.status}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
