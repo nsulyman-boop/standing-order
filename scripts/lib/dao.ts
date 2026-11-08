@@ -51,8 +51,16 @@ export async function vote(voter: string, proposalId: number, action: "VoteAppro
   return p;
 }
 
-export async function proposal(id: number) {
-  return view<any>(cfg.dao, "get_proposal", { id });
+/** Read a proposal, retrying briefly: a view right after `add_proposal` can hit an RPC node that has not caught up. */
+export async function proposal(id: number, retries = 8) {
+  for (let i = 0; ; i++) {
+    try {
+      return await view<any>(cfg.dao, "get_proposal", { id });
+    } catch (e) {
+      if (i >= retries || !String(e).includes("ERR_NO_PROPOSAL")) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
 }
 
 export { NEAR };

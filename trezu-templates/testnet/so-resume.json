@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "so-resume",
+  "title": "Standing Order: resume a payroll plan",
+  "summary": "Resume Standing Order plan #{{plan_id}}",
+  "binding": {
+    "receiver_id": "standing-order.testnet",
+    "method_name": "resume_plan",
+    "deposit": "0",
+    "gas": "30000000000000"
+  },
+  "fields": [
+    {
+      "name": "plan_id",
+      "label": "Plan id",
+      "type": "number",
+      "required": true,
+      "help": "Shown on the Standing Order dashboard and in plan_created events."
+    },
+    {
+      "name": "skip_missed",
+      "label": "Skip periods missed while paused (no back pay)",
+      "type": "bool",
+      "default": false
+    }
+  ],
+  "args": {
+    "plan_id": "{{plan_id}}",
+    "skip_missed": "{{skip_missed}}"
+  }
+}

@@ -33,3 +33,10 @@
 - `near_sdk::store` collections write lazily: flush before measuring `storage_usage`.
 - The keeper must hold enough NEAR to prepay 300 TGas per call (about 0.03 NEAR actually burnt, the rest refunded).
 - Node 22's `fetch` ignores `HTTPS_PROXY`; set `NODE_USE_ENV_PROXY=1` behind a proxy.
+
+## Trezu template proof (2026-11-08)
+
+| Step | Transaction |
+|---|---|
+| Proposal #5 filed with the `FunctionCall` kind + description compiled by Trezu's own template engine from `trezu-templates/testnet/so-create-plan.json` | https://testnet.nearblocks.io/txns/2x8osuRn1DUyag1pkBqCkeh4EjPkiCLWM6RGq3qSDGpn |
+| council2 approves → Plan #2 "Design retainer (filed from a Trezu template)" created with 300 USDC.e | https://testnet.nearblocks.io/txns/86WDFZKDHqov25uZvJnebcXHyiVN1TSdV96fPGxJ9JmE |

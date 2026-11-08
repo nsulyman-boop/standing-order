@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "so-create-plan",
+  "title": "Standing Order: start recurring payroll",
+  "summary": "Fund recurring payroll \"{{title}}\" with {{amount}} base units of USDC.e (testnet)",
+  "binding": {
+    "receiver_id": "usdc.fakes.testnet",
+    "method_name": "ft_transfer_call",
+    "deposit": "1",
+    "gas": "100000000000000"
+  },
+  "fields": [
+    {
+      "name": "title",
+      "label": "Plan title",
+      "type": "text",
+      "required": true,
+      "help": "No double quotes."
+    },
+    {
+      "name": "amount",
+      "label": "Initial funding (USDC.e (testnet), base units)",
+      "type": "amount",
+      "required": true,
+      "help": "Base units: USDC.e (testnet) has 6 decimals, so 100 USDC.e (testnet) = 100000000."
+    },
+    {
+      "name": "recipients",
+      "label": "Recipients (JSON)",
+      "type": "json",
+      "required": true,
+      "help": "Array of {\"account_id\":\"alice.near\",\"amount\":\"<base units>\"}; amounts are paid every period."
+    },
+    {
+      "name": "interval_seconds",
+      "label": "Interval (seconds)",
+      "type": "number",
+      "required": true,
+      "default": 2592000,
+      "help": "2592000 = every 30 days. 604800 = weekly."
+    },
+    {
+      "name": "cap_per_run",
+      "label": "Maximum per run (USDC.e (testnet), base units)",
+      "type": "amount",
+      "required": true,
+      "help": "Hard cap the contract enforces on every run; usually the sum of the recipients."
+    }
+  ],
+  "args": {
+    "receiver_id": "standing-order.testnet",
+    "amount": "{{amount}}",
+    "msg": "{\"action\":\"create_plan\",\"plan\":{\"title\":\"{{title}}\",\"asset\":{\"Ft\":{\"contract\":\"usdc.fakes.testnet\"}},\"recipients\":{{recipients}},\"interval_seconds\":{{interval_seconds}},\"cap_per_run\":\"{{cap_per_run}}\"}}"
+  }
+}

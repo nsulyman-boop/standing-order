@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/lib/utils": ["shims/utils.ts"],
+      "@/lib/proposals-api": ["shims/proposals-api.ts"]
+    }
+  },
+  "include": ["*.ts", "shims/*.ts", ".trezu-src/nt-fe/features/proposal-templates/*.ts"]
+}

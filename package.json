@@ -19,7 +19,8 @@
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",
     "bs58": "^6.0.0",
-    "near-api-js": "^7.4.0"
+    "near-api-js": "^7.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

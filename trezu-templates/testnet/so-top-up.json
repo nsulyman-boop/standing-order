@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "so-top-up",
+  "title": "Standing Order: top up a payroll plan",
+  "summary": "Top up Standing Order plan #{{plan_id}} with {{amount}} base units of USDC.e (testnet)",
+  "binding": {
+    "receiver_id": "usdc.fakes.testnet",
+    "method_name": "ft_transfer_call",
+    "deposit": "1",
+    "gas": "100000000000000"
+  },
+  "fields": [
+    {
+      "name": "plan_id",
+      "label": "Plan id",
+      "type": "number",
+      "required": true,
+      "help": "Shown on the Standing Order dashboard and in plan_created events."
+    },
+    {
+      "name": "amount",
+      "label": "Amount (USDC.e (testnet), base units)",
+      "type": "amount",
+      "required": true,
+      "help": "Base units: USDC.e (testnet) has 6 decimals, so 100 USDC.e (testnet) = 100000000."
+    }
+  ],
+  "args": {
+    "receiver_id": "standing-order.testnet",
+    "amount": "{{amount}}",
+    "msg": "{\"action\":\"fund_plan\",\"plan_id\":{{plan_id}}}"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "so-update-recipients",
+  "title": "Standing Order: change recipients or cap",
+  "summary": "Update recipients of Standing Order plan #{{plan_id}}",
+  "binding": {
+    "receiver_id": "standing-order.testnet",
+    "method_name": "update_plan",
+    "deposit": "10000000000000000000000",
+    "gas": "30000000000000"
+  },
+  "fields": [
+    {
+      "name": "plan_id",
+      "label": "Plan id",
+      "type": "number",
+      "required": true,
+      "help": "Shown on the Standing Order dashboard and in plan_created events."
+    },
+    {
+      "name": "recipients",
+      "label": "New recipients (JSON)",
+      "type": "json",
+      "required": true,
+      "help": "Array of {\"account_id\":\"alice.near\",\"amount\":\"<base units>\"}."
+    },
+    {
+      "name": "cap_per_run",
+      "label": "Maximum per run (USDC.e (testnet), base units)",
+      "type": "amount",
+      "required": true
+    }
+  ],
+  "args": {
+    "plan_id": "{{plan_id}}",
+    "update": {
+      "recipients": "{{recipients}}",
+      "cap_per_run": "{{cap_per_run}}"
+    }
+  }
+}
