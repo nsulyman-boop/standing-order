@@ -10,3 +10,4 @@ keeper/data/
 web/.next/
 scripts/librlimit_shim.so
 contract/test-contracts/test-token/target/
+keeper/.env

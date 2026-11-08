@@ -427,6 +427,17 @@ impl Contract {
             .collect()
     }
 
+    /// Plans that are past their run time but cannot pay a full run; they need a top-up.
+    pub fn get_underfunded_plans(&self, limit: Option<u64>) -> Vec<u64> {
+        let now = Self::now();
+        self.plans
+            .iter()
+            .filter(|(_, p)| p.is_underfunded(now))
+            .map(|(id, _)| *id)
+            .take(limit.unwrap_or(50) as usize)
+            .collect()
+    }
+
     pub fn is_due(&self, plan_id: u64) -> bool {
         self.plans.get(&plan_id).map(|p| p.is_due(Self::now())).unwrap_or(false)
     }

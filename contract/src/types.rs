@@ -67,11 +67,22 @@ impl Plan {
         matches!(self.end_at, Some(end) if self.next_run_at > end)
     }
 
-    /// Due means: active, not ended, and either mid-run or past `next_run_at`.
+    /// Due means: active, not ended, and either mid-run or past `next_run_at` with enough
+    /// balance for a full run. Underfunded plans are not "due" so keepers do not poll them
+    /// endlessly; `get_underfunded_plans` lists them instead.
     pub fn is_due(&self, now: u64) -> bool {
         self.status == PlanStatus::Active
             && !self.is_ended()
-            && (self.run_cursor.is_some() || now >= self.next_run_at)
+            && (self.run_cursor.is_some() || (now >= self.next_run_at && self.balance.0 >= self.total_per_run()))
+    }
+
+    /// Active, past its run time, but short of funds.
+    pub fn is_underfunded(&self, now: u64) -> bool {
+        self.status == PlanStatus::Active
+            && !self.is_ended()
+            && self.run_cursor.is_none()
+            && now >= self.next_run_at
+            && self.balance.0 < self.total_per_run()
     }
 }
 

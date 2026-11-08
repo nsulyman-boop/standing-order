@@ -122,6 +122,9 @@ fn run_due_refuses_partial_runs_when_underfunded() {
     testing_env!(ctx(accounts(5), 0, 1_000).build());
     let out = c.run_due(id);
     assert!(matches!(out, RunOutcome::Underfunded { needed, .. } if needed.0 == 3 * NEAR));
+    assert!(!c.is_due(id), "underfunded plans are not due, so keepers stop polling them");
+    assert!(c.get_due_plans(None).is_empty());
+    assert_eq!(c.get_underfunded_plans(None), vec![id]);
     let plan = c.get_plan(id).unwrap();
     assert_eq!(plan.runs_completed, 0);
     assert_eq!(plan.payout_count, 0);
@@ -130,6 +133,8 @@ fn run_due_refuses_partial_runs_when_underfunded() {
     // Top up and it pays.
     testing_env!(ctx(dao(), 2 * NEAR, 1_000).build());
     c.fund_plan(id);
+    assert!(c.get_underfunded_plans(None).is_empty());
+    assert_eq!(c.get_due_plans(None), vec![id]);
     testing_env!(ctx(accounts(5), 0, 1_000).build());
     assert!(matches!(c.run_due(id), RunOutcome::Sent { completed: true, .. }));
 }
