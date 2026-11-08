@@ -79,6 +79,7 @@ export function PlanDetail({ plan, meta, keeperRuns }: { plan: Plan; meta: Token
 
       <div>
         <h3>Recipients</h3>
+        <div className="table-wrap">
         <table>
           <thead><tr><th>Account</th><th>Paid where</th><th className="num">Per run</th></tr></thead>
           <tbody>
@@ -91,6 +92,7 @@ export function PlanDetail({ plan, meta, keeperRuns }: { plan: Plan; meta: Token
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div>
