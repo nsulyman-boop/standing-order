@@ -1,0 +1,27 @@
+{
+  "name": "standing-order",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Recurring payroll and scheduled payouts for Sputnik DAO treasuries on NEAR",
+  "type": "module",
+  "scripts": {
+    "test:contract": "./scripts/test.sh",
+    "setup": "tsx scripts/setup-accounts.ts",
+    "deploy": "tsx scripts/deploy.ts",
+    "dao:create": "tsx scripts/create-dao.ts",
+    "token:setup": "tsx scripts/token.ts",
+    "propose:plan": "tsx scripts/propose-plan.ts",
+    "propose:call": "tsx scripts/propose-call.ts",
+    "vote": "tsx scripts/vote.ts",
+    "run-due": "tsx scripts/run-due.ts",
+    "status": "tsx scripts/status.ts"
+  },
+  "dependencies": {
+    "near-api-js": "^7.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
