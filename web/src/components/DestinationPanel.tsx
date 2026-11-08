@@ -57,6 +57,10 @@ export function DestinationPanel({ accountId, connected, onSignIn, onSignOut, ca
         Recipients choose. Register a destination and each payout is swapped and delivered through NEAR Intents; the contract only pays a deposit
         address that 1Click has signed for <em>your</em> registered address, and refunds come back to your NEAR account.
       </p>
+      <p className="muted tiny" style={{ marginTop: 0 }}>
+        <b>Fiat / off-ramp.</b> Fiat is out of scope: register the USDC deposit address of your exchange or off-ramp on a supported chain. 1Click
+        fee is 0.25% without a partner token, 1 bp on stablecoin routes with one.
+      </p>
       {!connected ? (
         <div className="note">Connect the wallet of a recipient account to set or change its destination.</div>
       ) : (

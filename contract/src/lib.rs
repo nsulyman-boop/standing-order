@@ -486,7 +486,8 @@ impl Contract {
         let amount = env::attached_deposit().as_yoctonear();
         let current = self.storage_credits.get(&account).copied().unwrap_or(0);
         let updated = current + amount;
-        self.storage_credits.insert(account, updated);
+        self.storage_credits.insert(account.clone(), updated);
+        events::storage_credited(&account, amount, updated);
         U128(updated)
     }
 
@@ -497,7 +498,9 @@ impl Contract {
     // ───────────────────────────── admin ─────────────────────────────
 
     pub fn set_config(&mut self, sponsor_storage: Option<bool>, min_interval_seconds: Option<u64>, max_recipients: Option<u32>, oneclick_public_key: Option<String>) {
-        require!(env::predecessor_account_id() == self.owner_id, "Only the contract owner");
+        let by = env::predecessor_account_id();
+        require!(by == self.owner_id, "Only the contract owner");
+        let old = self.config_snapshot();
         if let Some(pk) = oneclick_public_key {
             self.oneclick_public_key = routes::decode_public_key(&pk).unwrap_or_else(|| env::panic_str("oneclick_public_key must be ed25519:<base58>"));
         }
@@ -509,6 +512,16 @@ impl Contract {
         }
         if let Some(v) = max_recipients {
             self.max_recipients = v;
+        }
+        events::config_updated(&by, &old, &self.config_snapshot());
+    }
+
+    fn config_snapshot(&self) -> events::ConfigSnapshot {
+        events::ConfigSnapshot {
+            oneclick_public_key: routes::encode_public_key(&self.oneclick_public_key),
+            sponsor_storage: self.sponsor_storage,
+            min_interval_seconds: self.min_interval_seconds,
+            max_recipients: self.max_recipients,
         }
     }
 
@@ -688,7 +701,8 @@ impl Contract {
         require!(q.origin_asset == format!("nep141:{}", contract), "Route origin asset does not match the plan token");
         require!(q.amount_in == recipient.amount.0, "Route amount does not match the recipient's payout");
         require!(q.destination_asset == dest.asset_id, "Route destination asset differs from the recipient's registration");
-        require!(q.recipient.eq_ignore_ascii_case(&dest.address), "Route recipient address differs from the recipient's registration");
+        // EVM (0x) addresses are compared case-insensitively; everything else (e.g. Solana base58) exactly.
+        require!(routes::destination_address_matches(&dest.address, &q.recipient), "Route recipient address differs from the recipient's registration");
         require!(q.refund_to == recipient.account_id.as_str(), "Route refund target must be the recipient's NEAR account");
         require!(q.deadline_seconds > now + 60, "Route deposit address expires too soon");
         RouteRecord {

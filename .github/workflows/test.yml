@@ -1,0 +1,58 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contract:
+    name: contract (build + unit + sandbox tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            contract
+            contract/test-contracts/test-token
+      # Builds both wasm contracts, runs the unit tests, then the near-workspaces sandbox tests.
+      # On runners with a low hard fd limit it compiles scripts/sandbox-rlimit-shim.c with cc (gcc is on ubuntu-latest).
+      - run: ./scripts/test.sh
+
+  trezu-templates:
+    name: trezu-templates (generate + check against Trezu's validator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: ./trezu-templates/fetch-trezu.sh
+      - run: npm run trezu:generate -- testnet
+      # Validates and compiles the templates only; never --submit from CI.
+      - run: npm run trezu:check -- testnet
+
+  web:
+    name: web (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build

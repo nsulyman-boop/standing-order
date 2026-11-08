@@ -11,4 +11,5 @@ if [ "$(ulimit -Hn)" != "unlimited" ] && [ "$(ulimit -Hn)" -lt 65535 ]; then
   [ -f "$ROOT/scripts/librlimit_shim.so" ] || cc -shared -fPIC -O2 -o "$ROOT/scripts/librlimit_shim.so" "$ROOT/scripts/sandbox-rlimit-shim.c" -ldl
   export LD_PRELOAD="$ROOT/scripts/librlimit_shim.so"
 fi
-cargo test --tests -- --test-threads=2 "$@"
+# Integration (sandbox) tests only; the lib unit tests already ran above.
+cargo test --test '*' -- --test-threads=2 "$@"

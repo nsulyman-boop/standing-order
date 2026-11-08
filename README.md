@@ -1,28 +1,41 @@
 # Standing Order
 
-**Recurring payroll for NEAR treasuries. Vote once, pay every period, settle on any chain.**
+![tests](https://github.com/nsulyman-boop/standing-order/actions/workflows/test.yml/badge.svg)
+
+**Vote once, pay every period on NEAR; cross-chain delivery through NEAR Intents, verified on-chain (mainnet demo pending).**
 
 A Sputnik DAO funds and authorises a payroll plan in a single vote. From then on the Standing Order
 contract pays every contributor on schedule, within the caps the council set, until the council
 pauses or cancels it. A keeper that holds a key able to call only `run_due` triggers each period.
 Contributors choose where they get paid: on NEAR, or on Base, Arbitrum, Ethereum or Solana through
 NEAR Intents, and the contract verifies 1Click's own signature on every cross-chain route before it
-pays a deposit address. It plugs into Trezu through custom proposal templates, with no change to Trezu.
+pays a deposit address. It plugs into Trezu through custom proposal templates, compiled and filed
+with Trezu's own template engine; no Trezu code is modified.
 
 Built at NEAR HACKATHON (Nov 2026). Tracks: `social` (Social Money), `realworld` (Real-World Money), `business`.
 
 ![Dashboard](docs/screenshots/desktop.png)
 
+Video: [docs/demo.mp4](docs/demo.mp4) (75 s screen capture of the live testnet dashboard).
+
 ## The problem
 
 DAO and startup treasuries pay the same people every month, yet on NEAR every payment is a fresh
-proposal that humans must file, vote on and sign. Arbitrum's DAO paid nine signers $1,500/month plus
-three chairs $2,500/month just to process payments, and wound the service down when the token fell
+proposal that humans must file, vote on and sign. Arbitrum's DAO ran a Multisig Support Service with
+"9 signers paid a fixed monthly fee of $1500 in ARB and 3 Chairs paid $2500 per month in ARB", plus a
+$6,650/month reporting contractor; in May 2025 it proposed winding the service down because "market
+conditions over the last year have placed the MSS in a position where funds will run out before the
+end of its term", noting that its "7/12 or 8/12" signing threshold "has proven to be inherently slow
+and inefficient" and that one accountable entity should run payments
 ([forum thread](https://forum.arbitrum.foundation/t/wind-down-the-mss-transfer-payment-responsibilities-to-the-arbitrum-foundation/29279)).
-On NEAR, Trezu and NEAR Business offer single and bulk payments and one-off vesting lockups, but no
-recurring payment primitive: Trezu's own template docs describe recurring payments as a form members
-re-file by hand each cycle, and NEAR's streaming protocol (Roketo) holds about $5K of TVL. Contributors
-who want USDC on another chain receive wNEAR and bridge it themselves.
+On NEAR, Trezu lists single and bulk payments, vesting schedules and CSV export, and NEAR Business
+documents "Proposing a Payment" and "Proposing Multiple Payments"; neither schedules a payment.
+Trezu's own [custom-proposal-template docs](https://github.com/NEAR-DevHub/trezu/blob/main/docs/trezu-custom-proposal-template/SKILL.md)
+describe a template that "lets a DAO turn a recurring on-chain action into a reusable form", for
+"when someone wants a repeatable proposal form (recurring payment, token mint, ...)": the form is
+reusable, the filing and the vote still happen every cycle. NEAR's streaming protocol, Roketo, holds
+$5,528 of TVL on [DefiLlama](https://defillama.com/protocol/roketo) as of 2026-11-08 (peak $367,840
+on 2024-04-28).
 
 ## What Standing Order does
 
@@ -54,25 +67,28 @@ NEAR tools and why each one is needed:
 
 | Tool | Role |
 |---|---|
-| **Sputnik DAO** (`sputnik-v2.testnet` factory) | Custody and policy stay with the DAO. One `FunctionCall` proposal funds a plan; pause/resume/cancel are proposals too. |
+| **Sputnik DAO** (`sputnik-v2.testnet` factory) | Policy stays with the DAO; funded tokens are escrowed in the Standing Order contract until paid or swept back by a DAO vote. One `FunctionCall` proposal funds a plan; pause/resume/cancel are proposals too. |
 | **Trezu custom proposal templates** | Six manifests turn those proposals into forms inside Trezu; validated and compiled with Trezu's own engine (`trezu-templates/`). |
 | **Function-call access keys** | The keeper account holds a key restricted to `standing-order.testnet::run_due`. The keeper refuses to start with anything broader. |
 | **NEAR Intents 1Click API** | Cross-chain delivery. Quotes are signed by 1Click; the contract re-derives the signed message (`base58(sha256(stable_json))`) and checks it with `env::ed25519_verify`. |
 | **Named accounts** | Recipients and treasuries are human-readable; no address-poisoning vector on the NEAR leg. |
-| **NEP-141 / NEP-297** | Token funding through `ft_transfer_call`; every state change emits a standard event. |
+| **NEP-141 / NEP-297** | Token funding through `ft_transfer_call`; every plan, payout and config change emits a standard event. |
 
 ## Try it ("do X, see Y")
 
-### A. Run the full test suite locally (no network, no funds, ~3 minutes)
+### A. Run the full test suite locally (no network, no funds)
 
-Requires Rust 1.86+ with the `wasm32-unknown-unknown` target and a C compiler.
+Requires Rust 1.95+ (the `contract/rust-toolchain.toml` pins 1.97.0 and adds the `wasm32-unknown-unknown`
+target for you) and a C compiler. The first run takes 5-15 minutes cold: it compiles `near-workspaces`
+and downloads the NEAR sandbox binary. Later runs take about 3 minutes. On containers with a low
+open-file limit the C compiler builds a small fd-limit shim for the sandbox node (`scripts/sandbox-rlimit-shim.c`).
 
 ```bash
 git clone https://github.com/nsulyman-boop/standing-order && cd standing-order
 ./scripts/test.sh
 ```
 
-See: `test result: ok. 29 passed` (unit tests, including verification of a **real signed 1Click quote** against
+See: `test result: ok. 40 passed` (unit tests, including verification of a **real signed 1Click quote** against
 1Click's production key), then three sandbox suites: `native_plans` 5 passed, `ft_plans` 3 passed,
 `routed_payouts` 1 passed. The sandbox tests deploy the contract to a local NEAR node, create and fund
 plans through `ft_transfer_call`, pay recipients, re-credit failed transfers, refuse five forged or
@@ -82,21 +98,25 @@ mismatched cross-chain quotes and pay the genuine one.
 
 ```bash
 npm install
-npm run status
+npm run status          # behind a proxy: export NODE_USE_ENV_PROXY=1
 ```
 
 See: the contract `standing-order.testnet`, DAO `payroll-demo.sputnik-v2.testnet`, each plan with its
 next run time, balance and recent payouts, and the recipients' USDC.e balances rising over time.
-`npm run watch` keeps printing new payouts as the keeper pays them (plan #1 pays every 2 minutes,
-plan #3 every 10 minutes).
+`npm run watch` keeps printing new payouts as the keeper pays them: plan #1 every 2 minutes and
+plan #3 every 10 minutes while they are funded; when a plan cannot afford a full run, `status` says
+`underfunded, needs top-up` instead and the keeper leaves it alone.
 
 ```bash
 cd web && npm install && npm run dev      # then open http://localhost:3000
 ```
 
+Live: <hosted URL, filled in when GitHub Pages is enabled>
+
 See: the dashboard with active plans, countdown to the next payday, payout history with explorer
-links, the DAO's Standing Order proposals (including the one filed via a Trezu template), and a
-"Get paid on another chain" panel. Connect a NEAR testnet wallet to register a destination.
+links, the DAO's Standing Order proposals (including proposal #5, compiled and filed with Trezu's
+template engine from `trezu-templates/testnet/so-create-plan.json`), and a "Get paid on another
+chain" panel. Connect a NEAR testnet wallet to register a destination.
 
 ### C. Run the whole loop with your own testnet account (~10 minutes, ~25 testnet NEAR)
 
@@ -105,21 +125,49 @@ npx near-cli-rs account create-account sponsor-by-faucet-service <you>.testnet a
 # repeat for two more accounts and move their NEAR to <you>.testnet, or use the faucet at near-faucet.io
 export SO_MASTER=<you>.testnet SO_CONTRACT=<you>.testnet SO_DAO_NAME=<unique-dao-name> \
        SO_COUNCIL=c1.<you>.testnet,c2.<you>.testnet SO_RECIPIENTS=a.<you>.testnet,b.<you>.testnet,c.<you>.testnet SO_KEEPER=keeper.<you>.testnet
-./scripts/demo-full-loop.sh
+./scripts/demo-full-loop.sh      # or: npm run demo
 ```
 
-See, step by step: sub-accounts created → contract deployed and initialised → DAO created with a
-2-of-2 council → test USDC.e minted to the DAO → proposal #0 filed → both council members vote →
-`Plan #1 ... [Active] balance 1200 USDC.e` → `run_due(1) {"Sent":{"sent":3,...}}` → recipients'
-balances show 100 / 80 / 60 USDC.e → `pause_plan` proposal approved → `run_due` returns `"Paused"`.
+See, step by step (11 steps, each announced with `▶`): contract built → sub-accounts created →
+contract deployed and initialised → DAO created with a 2-of-2 council → test USDC.e minted to the
+DAO → council and keeper accounts funded → plan proposal filed and both council members vote →
+first run: `run_due(1) {"Sent":{"sent":3,...}}` and `Plan #1 ... [Active] balance 1200 USDC.e` with
+recipients at 100 / 80 / 60 USDC.e → keeper function-call key created (`run_due` only, written to
+`keeper/.env`) → `npm run keeper:once` ticks with that key: `{"event":"key verified",...}` then
+`{"event":"sent",...}` if a period is due, otherwise `{"event":"idle","due":0}` → `pause_plan`
+proposal filed and approved → `run_due` returns `"Paused"` and the script prints
+`OK: run_due returned Paused, nothing moved`. The script is idempotent; re-running skips what exists.
 
-### D. Cross-chain route (mainnet only)
+### D. Run the keeper
 
-1Click has no testnet, so routed payouts need a mainnet deployment; the sandbox test
-`routed_payouts` exercises the full verification path with a stand-in signing key, and the unit test
-`real_live_quote_verifies` checks a genuine 1Click signature. The keeper runs in `CROSSCHAIN=dry`
-mode on testnet: it still fetches quotes and logs `route unavailable, paying on NEAR` when 1Click
-rejects the testnet token. See `docs/TESTNET.md` for the exact commands and `docs/MAINNET.md` for the mainnet runbook.
+```bash
+npm run keeper:key                                   # adds a run_due-only key to $SO_KEEPER, writes keeper/.env
+CROSSCHAIN=dry KEEPER_HTTP_PORT=8787 npm run keeper   # long-running; npm run keeper:once for a single tick
+```
+
+`keeper/.env` carries `NEAR_NETWORK`, `SO_CONTRACT`, `KEEPER_ACCOUNT` and `KEEPER_KEY`. Optional:
+`POLL_SECONDS` (15), `NEAR_RPC_URL`, `KEEPER_HTTP_PORT` (serves JSON status for the dashboard's
+`VITE_KEEPER_URL`), `KEEPER_LOG` (JSONL run log, default `keeper/data/runs.jsonl`),
+`CROSSCHAIN=off|dry|live` (testnet default `dry`), `ONE_CLICK_URL`, `ONE_CLICK_JWT`,
+`ROUTE_SLIPPAGE_BPS` (100). The keeper refuses to start with a full-access key or any key not
+limited to `<SO_CONTRACT>:run_due`.
+
+Expected log lines (one JSON object per line):
+
+```
+{"event":"keeper starting","network":"testnet","contract":"...","account":"keeper...","pollSeconds":15,"crosschain":"dry"}
+{"event":"key verified","receiver":"standing-order.testnet","methods":["run_due"],"allowance_near":2}
+{"event":"status endpoint","url":"http://localhost:8787/"}
+{"event":"idle","due":0}
+{"event":"dry quote","recipient":"design...","amountIn":"...","amountOut":"...","destination":"base:..."}   # recipient with a destination
+{"event":"route unavailable, paying on NEAR","recipient":"...","error":"..."}                           # 1Click rejects the testnet token
+{"event":"sent","plan_id":1,"outcome":{"Sent":{"sent":3,"completed":true}},"tx":"..."}
+```
+
+Cross-chain routes are mainnet only: 1Click has no testnet, so no routed payout has settled on
+mainnet yet. The sandbox test `routed_payouts` exercises the full verification path with a stand-in
+signing key, and the unit test `real_live_quote_verifies` checks a genuine 1Click signature. See
+`docs/TESTNET.md` for the live accounts and transactions and `docs/MAINNET.md` for the mainnet runbook.
 
 ## Repository layout
 
@@ -131,7 +179,16 @@ rejects the testnet token. See `docs/TESTNET.md` for the exact commands and `doc
 | `scripts/` | Testnet operations: accounts, deploy (+ `--migrate`), DAO creation, token setup, proposals, votes, keeper key, status/watch. |
 | `trezu-templates/` | Trezu manifests per network, generator, and a checker that runs Trezu's real validator/engine and can file the compiled proposal. |
 | `web/` | Dashboard (Vite + React) in NEAR's brand system; Playwright smoke test. |
-| `docs/` | `PLAN.md` (phases and exit tests), `TESTNET.md` (live accounts and transactions), `DEMO.md` (video and post), `SECURITY.md` (threat model). |
+| `docs/` | See the table below. |
+
+| Doc | What |
+|---|---|
+| `docs/PLAN.md` | Phases, exit tests, what was dropped. |
+| `docs/TESTNET.md` | Live accounts, proposals and transactions. |
+| `docs/MAINNET.md` | Mainnet runbook for the first routed payout. |
+| `docs/SECURITY.md` | Threat model, admin keys, what we rely on NEAR Intents for, privacy. |
+| `docs/DEMO.md` | Video storyboard, X post, pre-submission feedback post. |
+| `docs/SUBMISSION.md` | Submission form payload. |
 
 ## Contract API (short)
 
@@ -155,19 +212,32 @@ the recipient's NEAR account, and the deposit address is live for at least anoth
 
 See `docs/SECURITY.md`. In short: the DAO can always pause, sweep or cancel; the keeper can only make
 a due payment happen (at most one polling interval early); a compromised keeper cannot redirect
-funds because routes must carry 1Click's signature over the recipient's registered address; the
-1Click key is owner-rotatable; and the remaining trust is in 1Click executing the swap it signed,
-with refunds flowing to the recipient, not to the keeper or the contract.
+funds because routes must carry 1Click's signature over the recipient's registered address, but it
+does choose the quote's slippage (`ROUTE_SLIPPAGE_BPS`, no on-chain floor) and can omit a route so a
+recipient is paid on NEAR instead of their registered chain; the 1Click key is owner-rotatable; and
+the remaining trust is in 1Click executing the swap it signed, with refunds flowing to the recipient,
+not to the keeper or the contract. This automates payroll operations; it is not a vesting lock: the
+DAO can sweep at any time, and `resume_plan` pays missed periods unless `skip_missed` is set.
 
 ## What was built during the hackathon, and what was reused
 
-Everything in this repository was written during the hackathon window (first commit 2026-11-08).
-Reused: `near-sdk` 5.30 and `near-contract-standards` (test token), `near-workspaces`,
-`near-api-js` 7.4, `@defuse-protocol/one-click-sdk-typescript` (keeper-side quote verification),
-`@hot-labs/near-connect`, React/Vite, `@fontsource` fonts. Trezu's template engine is **not**
-vendored: `trezu-templates/fetch-trezu.sh` clones NEAR-DevHub/trezu so our checker can run Trezu's
-own validator. Patterns studied: Trezu's `bulk-payment` contract (gas-metered batching) and the
-Sputnik DAO contract (proposal kinds and gas limits).
+Everything in this repository was written inside the hackathon window (code counts from the
+2026-10-19 announcement; development 2026-11-01 to 2026-11-14; this repo's first commit is
+2026-11-08). It was built with AI coding assistance (Claude Code); the testnet transactions, the
+captured 1Click fixtures and the tests were verified by running them. Reused: `near-sdk` 5.30 and
+`near-contract-standards` (test token), `near-workspaces`, `near-api-js` 7.4,
+`@defuse-protocol/one-click-sdk-typescript` (keeper-side quote verification), `@hot-labs/near-connect`,
+React/Vite, `@fontsource` fonts. Trezu's template engine is **not** vendored:
+`trezu-templates/fetch-trezu.sh` clones NEAR-DevHub/trezu so our checker can run Trezu's own validator.
+
+## Credits and prior art
+
+- Arbitrum DAO, [Wind Down the MSS](https://forum.arbitrum.foundation/t/wind-down-the-mss-transfer-payment-responsibilities-to-the-arbitrum-foundation/29279): the cost and coordination numbers in "The problem".
+- [Trezu](https://github.com/NEAR-DevHub/trezu): custom proposal template docs (the integration surface) and the `bulk-payment` contract (gas-metered batching with callbacks, the pattern our payout loop follows).
+- [Sputnik DAO v2](https://github.com/near-daos/sputnik-dao-contract): proposal kinds, policy and gas limits.
+- [NEAR Intents 1Click SDK](https://github.com/defuse-protocol/one-click-sdk-typescript): quote signature scheme, re-implemented on-chain in `contract/src/routes.rs`.
+- [Roketo](https://defillama.com/protocol/roketo): NEAR's earlier streaming-payments approach.
+- [near-sdk-rs](https://github.com/near/near-sdk-rs) and `near-workspaces-rs`: contract framework and sandbox tests.
 
 ## License
 

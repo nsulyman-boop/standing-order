@@ -25,7 +25,8 @@ export default function App() {
   const [treasury, setTreasury] = useState<string>("0");
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [keeper, setKeeper] = useState<KeeperStatus | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
+  // Deep link: #plan-<id> preselects a plan on load; selecting one updates the hash.
+  const [selected, setSelected] = useState<number | null>(() => planIdFromHash());
   const [nowMs, setNowMs] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -47,7 +48,7 @@ export default function App() {
         setProposals(props);
         setError(null);
         setLoaded(true);
-        setSelected((s) => s ?? p.find((x) => x.status === "Active")?.id ?? p[0]?.id ?? null);
+        setSelected((s) => (s !== null && p.some((x) => x.id === s) ? s : p.find((x) => x.status === "Active")?.id ?? p[0]?.id ?? null));
       } catch (e) {
         if (!cancelled) setError(String((e as any)?.message ?? e));
       }
@@ -68,12 +69,32 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onHash = () => {
+      const id = planIdFromHash();
+      if (id !== null) setSelected(id);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const select = (id: number) => {
+    setSelected(id);
+    const hash = `#plan-${id}`;
+    if (window.location.hash !== hash) window.location.hash = hash;
+  };
+
   const active = plans.filter((p) => p.status === "Active");
   const totalPaid = useMemo(() => {
     // Sum of completed runs × per-run total, per plan (payout records are per plan; this is the aggregate).
     return plans.filter((p) => p.asset !== "Near").reduce((acc, p) => acc + BigInt(p.runs_completed) * sum(p.recipients.map((r) => r.amount)), 0n);
   }, [plans]);
-  const nextRun = active.filter((p) => !(p.end_at !== null && p.next_run_at > p.end_at)).map((p) => p.next_run_at).sort((a, b) => a - b)[0];
+  // Next payday counts only plans the keeper can actually pay: active, not past end_at, and funded for at least one run
+  // (an underfunded plan shows "Needs top-up" on its card instead of a countdown).
+  const nextRun = active
+    .filter((p) => !(p.end_at !== null && p.next_run_at > p.end_at) && BigInt(p.balance) >= sum(p.recipients.map((r) => r.amount)))
+    .map((p) => p.next_run_at)
+    .sort((a, b) => a - b)[0];
   const committed = active.reduce((acc, p) => acc + BigInt(p.balance), 0n);
   const selectedPlan = plans.find((p) => p.id === selected) ?? null;
   const keeperFresh = keeper?.lastTick ? Date.now() - new Date(keeper.lastTick).getTime() < 120_000 : false;
@@ -86,10 +107,12 @@ export default function App() {
           <span className="pill hide-sm"><span className="dot" style={{ background: NETWORK === "mainnet" ? "var(--green)" : "var(--purple)" }} />{NETWORK}</span>
           <a className="pill hide-sm mono" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer">{CONTRACT} ↗</a>
           <div className="spacer" />
-          <span className={`pill keeper ${keeper ? (keeperFresh ? "ok" : "bad") : ""}`} title={keeper?.lastTick ? `last tick ${keeper.lastTick}` : "keeper status endpoint not configured"}>
-            <span className="dot" />
-            <span className="text">{keeper ? (keeperFresh ? `Keeper live · ${keeper.runs} runs` : "Keeper stale") : "Keeper: no status"}</span>
-          </span>
+          {KEEPER_URL && (
+            <span className={`pill keeper ${keeper ? (keeperFresh ? "ok" : "bad") : ""}`} title={keeper?.lastTick ? `last tick ${keeper.lastTick}` : "keeper status endpoint unreachable"}>
+              <span className="dot" />
+              <span className="text">{keeper ? (keeperFresh ? `Keeper live · ${keeper.runs} runs` : "Keeper stale") : "Keeper: no status"}</span>
+            </span>
+          )}
           {wallet.connected ? <button className="btn ghost sm" onClick={wallet.signOut}>{wallet.accountId.length > 22 ? wallet.accountId.slice(0, 20) + "…" : wallet.accountId}</button> : <button className="btn sm" onClick={wallet.signIn}>Connect</button>}
         </div>
       </header>
@@ -121,7 +144,7 @@ export default function App() {
                 {!loaded && <div className="card empty">Loading plans from {CONTRACT}…</div>}
                 {loaded && plans.length === 0 && <div className="card empty">No plans yet. A DAO creates one by voting on a funding proposal.</div>}
                 {plans.slice().sort((a, b) => (a.status === "Active" ? -1 : 1) - (b.status === "Active" ? -1 : 1) || b.id - a.id).map((p) => (
-                  <PlanCard key={p.id} plan={p} meta={meta} nowMs={nowMs} selected={p.id === selected} onSelect={() => setSelected(p.id)} />
+                  <PlanCard key={p.id} plan={p} meta={meta} nowMs={nowMs} selected={p.id === selected} onSelect={() => select(p.id)} />
                 ))}
               </div>
             </div>
@@ -151,4 +174,9 @@ export default function App() {
       </footer>
     </>
   );
+}
+
+function planIdFromHash(): number | null {
+  const m = /^#plan-(\d+)$/.exec(window.location.hash);
+  return m ? Number(m[1]) : null;
 }

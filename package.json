@@ -23,7 +23,8 @@
     "register:destination": "tsx scripts/register-destination.ts",
     "demo": "./scripts/demo-full-loop.sh",
     "trezu:check": "tsx --tsconfig trezu-templates/tsconfig.json trezu-templates/check.ts",
-    "trezu:generate": "tsx trezu-templates/generate.ts"
+    "trezu:generate": "tsx trezu-templates/generate.ts",
+    "pool-funds": "tsx scripts/pool-funds.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",

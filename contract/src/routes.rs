@@ -39,6 +39,13 @@ pub fn verify_quote(raw: &str, public_key: &[u8; 32]) -> Result<VerifiedQuote, S
     if req.get("dry").and_then(Value::as_bool) != Some(false) {
         return Err("quote must be a non-dry quote".into());
     }
+    // Only the plain shape we know how to bind: the keeper deposits the exact payout amount on
+    // NEAR and 1Click delivers to the recipient's address on the destination chain.
+    for (key, expected) in [("swapType", "EXACT_INPUT"), ("depositType", "ORIGIN_CHAIN"), ("recipientType", "DESTINATION_CHAIN")] {
+        if req.get(key).and_then(Value::as_str) != Some(expected) {
+            return Err(format!("quoteRequest.{key} must be {expected}"));
+        }
+    }
 
     let message = signed_message(req, quote, timestamp)?;
     let sig_bytes = bs58::decode(signature.strip_prefix("ed25519:").unwrap_or(signature))
@@ -161,6 +168,17 @@ pub fn parse_rfc3339_seconds(s: &str) -> Option<u64> {
     Some(days as u64 * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
+/// Compare the address a quote delivers to with the one the recipient registered. EVM addresses
+/// (`0x…`) are hex and compared case-insensitively (checksum casing varies); every other chain's
+/// address, e.g. Solana base58, is case-sensitive and must match exactly.
+pub fn destination_address_matches(registered: &str, quoted: &str) -> bool {
+    if registered.starts_with("0x") {
+        registered.eq_ignore_ascii_case(quoted)
+    } else {
+        registered == quoted
+    }
+}
+
 pub fn decode_public_key(s: &str) -> Option<[u8; 32]> {
     let raw = s.strip_prefix("ed25519:").unwrap_or(s);
     bs58::decode(raw).into_vec().ok()?.try_into().ok()
@@ -212,6 +230,60 @@ mod tests {
         let tampered = LIVE.replace("\"amount\":\"3000000\"", "\"amount\":\"30000000\"");
         assert_ne!(tampered, LIVE);
         assert!(verify_quote(&tampered, &key()).is_err());
+    }
+
+    #[test]
+    fn tampered_swap_type_fails_naming_the_field() {
+        let tampered = LIVE.replace("\"swapType\":\"EXACT_INPUT\"", "\"swapType\":\"EXACT_OUTPUT\"");
+        assert_ne!(tampered, LIVE);
+        let err = verify_quote(&tampered, &key()).unwrap_err();
+        assert!(err.contains("swapType") && err.contains("EXACT_INPUT"), "{err}");
+    }
+
+    #[test]
+    fn tampered_deposit_type_fails_naming_the_field() {
+        let tampered = LIVE.replace("\"depositType\":\"ORIGIN_CHAIN\"", "\"depositType\":\"INTENTS\"");
+        assert_ne!(tampered, LIVE);
+        let err = verify_quote(&tampered, &key()).unwrap_err();
+        assert!(err.contains("depositType") && err.contains("ORIGIN_CHAIN"), "{err}");
+    }
+
+    #[test]
+    fn tampered_recipient_type_fails_naming_the_field() {
+        let tampered = LIVE.replace("\"recipientType\":\"DESTINATION_CHAIN\"", "\"recipientType\":\"INTENTS\"");
+        assert_ne!(tampered, LIVE);
+        let err = verify_quote(&tampered, &key()).unwrap_err();
+        assert!(err.contains("recipientType") && err.contains("DESTINATION_CHAIN"), "{err}");
+    }
+
+    #[test]
+    fn missing_shape_fields_fail_naming_the_field() {
+        let no_swap = LIVE.replace("\"swapType\":\"EXACT_INPUT\",", "");
+        assert_ne!(no_swap, LIVE);
+        assert!(verify_quote(&no_swap, &key()).unwrap_err().contains("swapType"));
+        let no_deposit = LIVE.replace("\"depositType\":\"ORIGIN_CHAIN\",", "");
+        assert_ne!(no_deposit, LIVE);
+        assert!(verify_quote(&no_deposit, &key()).unwrap_err().contains("depositType"));
+        let no_recipient_type = LIVE.replace("\"recipientType\":\"DESTINATION_CHAIN\",", "");
+        assert_ne!(no_recipient_type, LIVE);
+        assert!(verify_quote(&no_recipient_type, &key()).unwrap_err().contains("recipientType"));
+    }
+
+    #[test]
+    fn evm_addresses_match_case_insensitively_others_exactly() {
+        let evm = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+        assert!(destination_address_matches(evm, evm));
+        assert!(destination_address_matches(evm, &evm.to_lowercase()));
+        assert!(destination_address_matches(evm, &evm.to_uppercase().replace("0X", "0x")));
+        assert!(!destination_address_matches(evm, "0x1111111111111111111111111111111111111111"));
+        let sol = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV";
+        assert!(destination_address_matches(sol, sol));
+        assert!(!destination_address_matches(sol, &sol.to_lowercase()));
+        assert!(!destination_address_matches(sol, &sol.to_uppercase()));
+        // Only a registered 0x address relaxes the comparison; a quoted 0x against a non-0x
+        // registration (or vice versa) must still match exactly.
+        assert!(!destination_address_matches(sol, evm));
+        assert!(!destination_address_matches(&evm[2..], &evm[2..].to_lowercase()));
     }
 
     #[test]

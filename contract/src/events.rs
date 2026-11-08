@@ -109,3 +109,34 @@ pub fn destination_set(account: &AccountId, asset_id: &str, address: &str) {
 pub fn destination_cleared(account: &AccountId) {
     emit("destination_cleared", json!({"account": account}));
 }
+
+/// The admin-tunable part of the contract config, as it appears in `config_updated`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfigSnapshot {
+    pub oneclick_public_key: String,
+    pub sponsor_storage: bool,
+    pub min_interval_seconds: u64,
+    pub max_recipients: u32,
+}
+
+impl ConfigSnapshot {
+    fn to_json(&self) -> Value {
+        json!({
+            "oneclick_public_key": self.oneclick_public_key,
+            "sponsor_storage": self.sponsor_storage,
+            "min_interval_seconds": self.min_interval_seconds,
+            "max_recipients": self.max_recipients,
+        })
+    }
+}
+
+pub fn config_updated(by: &AccountId, old: &ConfigSnapshot, new: &ConfigSnapshot) {
+    emit("config_updated", json!({"by": by, "old": old.to_json(), "new": new.to_json()}));
+}
+
+pub fn storage_credited(account: &AccountId, amount: u128, credit: u128) {
+    emit(
+        "storage_credited",
+        json!({"account": account, "amount": amount.to_string(), "credit": credit.to_string()}),
+    );
+}

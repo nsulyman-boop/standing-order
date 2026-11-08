@@ -16,6 +16,9 @@ for (;;) {
       continue;
     }
     if (p.payout_count > last) {
+      // Payouts are recorded as Pending when dispatched and settle to Sent/Failed in the transfer
+      // callback a block or two later; re-read after a short pause so we print the live status.
+      await new Promise((r) => setTimeout(r, 3000));
       const fresh = await view<any[]>(cfg.contract, "get_payouts", { plan_id: p.id, from_seq: last, limit: p.payout_count - last });
       for (const o of fresh) console.log(`${new Date(o.timestamp * 1000).toISOString()} plan #${p.id} run ${o.run_index} → ${o.recipient} ${fmt(o.amount)} ${o.status}`);
       seen.set(p.id, p.payout_count);

@@ -5,17 +5,34 @@
 - **Keeper**: any account; the reference keeper holds a function-call key limited to `run_due`.
 - **Recipients**: NEAR accounts; may register a cross-chain destination.
 - **1Click (NEAR Intents)**: signs quotes and executes swaps off-chain.
-- **Contract owner**: can toggle storage sponsorship, limits, and rotate the 1Click public key. Cannot touch plan funds.
+- **Contract owner**: can toggle storage sponsorship, limits, and rotate the 1Click public key (`set_config`, owner-only). Cannot touch plan funds.
+- **Full-access key holder of the contract account**: can redeploy the contract (see "Upgrade and admin keys").
 
 ## What each actor can and cannot do
 
 | Actor | Can | Cannot |
 |---|---|---|
-| Keeper (compromised key) | Trigger a due run up to one polling interval early; spend its own gas allowance | Change recipients, amounts, cadence; move funds to itself; pay a non-due plan; pay partially; route a payout without a 1Click signature over the recipient's registered address |
+| Keeper (compromised key) | Trigger a due run up to one polling interval early; spend its own gas allowance; choose the slippage of the 1Click quotes it fetches (`ROUTE_SLIPPAGE_BPS`, no on-chain floor); omit a route, so a recipient with a registered destination is paid on NEAR instead of their chain | Change recipients, amounts, cadence; move funds to itself; pay a non-due plan; pay partially; route a payout without a 1Click signature over the recipient's registered address |
 | Treasury | Everything above through votes; sweep remaining balance any time (not mid-run) | Claw back a payout already sent |
 | Recipient | Register/clear their own destination | Change anyone else's destination or amounts |
 | Contract owner | Rotate the 1Click key, toggle sponsored storage | Access plan balances |
+| Keeper + contract owner (collusion) | Rotate the 1Click key to one they control, then sign "quotes" whose `depositAddress` is their own while the `recipient` / `destinationAsset` / `refundTo` checks still pass, because those compare against the recipient's registration, not against 1Click | Touch recipients paid on NEAR (no route involved); hide the rotation: `set_config` emits `config_updated`, so a key change is visible on-chain before the next run. Mitigation: hold the owner key under DAO control (see below) |
 | 1Click | Execute or refund the swap it quoted | Receive funds for an unquoted address: the contract only pays `depositAddress` from a signed quote whose `recipient`/`destinationAsset` equal the recipient's own registration |
+
+## Upgrade and admin keys
+- `standing-order.testnet` (the contract account) holds a full-access key owned by the author, so the contract is
+  upgradable (`deploy --migrate`, `migrate()`) by that key holder. On testnet this is deliberate: it is how the
+  demo was iterated.
+- `keeper.standing-order.testnet` holds the `run_due`-only function-call key the keeper service uses **and** a
+  full-access key used by the operations scripts. The keeper service checks the key it is given at start and
+  refuses to run with the full-access one (`Refusing to run with a full-access key`).
+- `set_config` is owner-only. It toggles sponsorship and limits and rotates the 1Click public key, and emits
+  `config_updated`.
+- FT plan balances sit in the contract's own token balance at the token contract; they are segregated per plan
+  only by the contract's accounting. An upgrade could therefore move them.
+- **Recommendation for mainnet:** deploy under a DAO-controlled account (the Sputnik DAO is the only full-access
+  signer, upgrades go through a vote) or remove the full-access key after deployment and set `owner` to the DAO,
+  so that key rotation and any future upgrade are DAO decisions with an on-chain record.
 
 ## Cross-chain route verification (contract/src/routes.rs)
 1. Rebuild 1Click's signed message exactly as the SDK does: the documented subset of request and quote fields,
@@ -25,9 +42,29 @@
    `recipient` equal the recipient's registration; `refundTo == recipient account`; `deadline > now + 60 s`.
 4. On any mismatch the whole `run_due` call panics; nothing is paid.
 
-Residual risk: 1Click could fail to execute a signed quote. Then the deposit is refunded to the recipient's
-NEAR account by 1Click's refund flow (`refundTo`), and the plan's accounting is unaffected. The keeper records
-1Click status transitions for every routed payout.
+## What we rely on NEAR Intents for
+- **Authenticity.** A route is only paid if 1Click signed it. The signature is checked on-chain with ed25519
+  (`env::ed25519_verify`), not by the keeper; the unit test `real_live_quote_verifies` checks a genuine production
+  quote against 1Click's published key, and the sandbox suite refuses five forged or mismatched quotes.
+- **Failure.** If 1Click cannot execute a signed quote, its refund flow returns the deposit to `refundTo`, which the
+  contract forces to be the recipient's own NEAR account. The plan was already debited when the deposit was paid,
+  so there is no double pay and no re-credit; the recipient ends up paid on NEAR instead. The keeper tracks each
+  routed payout's 1Click status (`SUBMITTED` → `SUCCESS` / `REFUNDED` / `FAILED`) and logs transitions.
+- **Liveness.** `run_due` is permissionless. If the reference keeper or 1Click is down, anyone can call `run_due`
+  without routes and every recipient is paid on NEAR; nothing is stuck behind the keeper.
+- **Limits.** The contract cannot force 1Click to execute a swap it signed; the 1Click key is owner-rotatable (see
+  the collusion row above); and 1Click has no testnet, so the routed path is proven in the sandbox and by the
+  real-quote unit test, not yet by a settled mainnet payout.
+
+Design note: `refundTo` is the recipient, not the treasury. A failed route must not silently return money to the
+DAO after the plan has recorded the period as paid; the recipient keeps their pay, on NEAR, and no accounting
+diverges.
+
+## Privacy
+Recipients and amounts are public on-chain, as with any Sputnik payment proposal; a Standing Order plan additionally
+publishes the cadence and the funding horizon. Mitigations available today: pay opaque sub-accounts (one per
+contributor, named arbitrarily) and group contributors into plans so a single plan does not identify a person's
+salary. Future work: shielded payouts, where the plan records a commitment and the recipient claims the amount.
 
 ## Operational notes
 - Native transfers to non-existent accounts and token transfers to unregistered accounts fail safely: the
@@ -37,5 +74,8 @@ NEAR account by 1Click's refund flow (`refundTo`), and the plan's accounting is 
 - Storage: plans created through `ft_transfer_call` draw on the sender's storage credits, or on sponsorship
   when enabled (demo default). Disable sponsorship in production (`set_config`).
 - `resume_plan` defaults to back pay (missed periods are paid one per `run_due` call); `skip_missed: true`
-  forgets them. Both are explicit DAO decisions.
+  forgets them. Both are explicit DAO decisions. This is payroll automation, not a vesting lock: the DAO can sweep
+  at any time.
 - Keeper key allowance is immutable once set; add a new key when it is spent.
+- Fiat: out of scope. Standing Order pays tokens to accounts and addresses; off-ramping, invoicing and tax
+  reporting are left to the recipient or to tools built on the payout events.

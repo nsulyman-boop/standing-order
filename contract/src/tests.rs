@@ -337,23 +337,74 @@ fn cannot_update_mid_run() {
     c.update_plan(id, PlanUpdate { title: Some("x".into()), ..Default::default() });
 }
 
+/// Parse the NEP-297 `EVENT_JSON:` logs emitted so far and return the `data[0]` of those named `event`.
+fn events_named(event: &str) -> Vec<near_sdk::serde_json::Value> {
+    get_logs()
+        .iter()
+        .filter_map(|l| l.strip_prefix("EVENT_JSON:"))
+        .map(|j| near_sdk::serde_json::from_str::<near_sdk::serde_json::Value>(j).expect("event log is JSON"))
+        .filter(|v| v["event"] == event && v["standard"] == "standing_order")
+        .map(|v| v["data"][0].clone())
+        .collect()
+}
+
 #[test]
 fn storage_deposit_tracks_credits() {
     let mut c = new_contract();
     testing_env!(ctx(dao(), NEAR, 1_000).build());
     assert_eq!(c.storage_deposit(None).0, NEAR);
     assert_eq!(c.storage_credit_of(dao()).0, NEAR);
+    let ev = events_named("storage_credited");
+    assert_eq!(ev.len(), 1, "{:?}", get_logs());
+    assert_eq!(ev[0]["account"], dao().to_string());
+    assert_eq!(ev[0]["amount"], NEAR.to_string());
+    assert_eq!(ev[0]["credit"], NEAR.to_string());
+
+    // Topping up another account reports that account and its cumulative credit.
+    testing_env!(ctx(dao(), NEAR / 2, 1_000).build());
+    assert_eq!(c.storage_deposit(Some(accounts(2))).0, NEAR / 2);
+    testing_env!(ctx(dao(), NEAR / 2, 1_000).build());
+    assert_eq!(c.storage_deposit(Some(accounts(2))).0, NEAR);
+    let ev = events_named("storage_credited");
+    assert_eq!(ev.len(), 1);
+    assert_eq!(ev[0]["account"], accounts(2).to_string());
+    assert_eq!(ev[0]["amount"], (NEAR / 2).to_string());
+    assert_eq!(ev[0]["credit"], NEAR.to_string());
 }
 
 #[test]
 fn only_contract_owner_sets_config() {
     let mut c = new_contract();
     testing_env!(ctx(accounts(0), 0, 1_000).build());
-    c.set_config(Some(false), Some(10), Some(5), None);
+    let old_key = c.get_config().oneclick_public_key;
+    let new_key = routes::encode_public_key(&[1u8; 32]);
+    c.set_config(Some(false), Some(10), Some(5), Some(new_key.clone()));
     let cfg = c.get_config();
     assert!(!cfg.sponsor_storage);
     assert_eq!(cfg.min_interval_seconds, 10);
     assert_eq!(cfg.max_recipients, 5);
+    assert_eq!(cfg.oneclick_public_key, new_key);
+
+    let ev = events_named("config_updated");
+    assert_eq!(ev.len(), 1, "{:?}", get_logs());
+    let ev = &ev[0];
+    assert_eq!(ev["by"], accounts(0).to_string());
+    assert_eq!(ev["old"]["oneclick_public_key"], old_key);
+    assert_eq!(ev["old"]["sponsor_storage"], true);
+    assert_eq!(ev["old"]["min_interval_seconds"], 60);
+    assert_eq!(ev["old"]["max_recipients"], 100);
+    assert_eq!(ev["new"]["oneclick_public_key"], new_key);
+    assert_eq!(ev["new"]["sponsor_storage"], false);
+    assert_eq!(ev["new"]["min_interval_seconds"], 10);
+    assert_eq!(ev["new"]["max_recipients"], 5);
+}
+
+#[test]
+#[should_panic(expected = "Only the contract owner")]
+fn non_owner_cannot_set_config() {
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 0, 1_000).build());
+    c.set_config(Some(false), None, None, None);
 }
 
 #[test]
@@ -397,4 +448,131 @@ fn register_destination_rejects_bad_asset() {
     let mut c = new_contract();
     testing_env!(ctx(accounts(2), NEAR / 10, 1_000).build());
     c.register_destination("base-usdc".into(), "0xabc".into());
+}
+
+// ───────────────────────────── cross-chain routes ─────────────────────────────
+
+mod routed {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use near_sdk::serde_json::{json, Value};
+    use std::collections::BTreeMap;
+
+    const USD: u128 = 1_000_000;
+    const BASE_USDC: &str = "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near";
+    const BASE_ADDR: &str = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+    const SOL_USDC: &str = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near";
+    const SOL_ADDR: &str = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV";
+
+    fn token() -> AccountId {
+        accounts(3)
+    }
+
+    /// A quote response shaped and signed like 1Click's, signed by `signer` (same canonical
+    /// form as `tests/routed_payouts.rs`).
+    fn signed_quote(signer: &SigningKey, origin_asset: &str, destination_asset: &str, amount: u128, recipient: &str, refund_to: &str) -> String {
+        let request = json!({
+            "dry": false, "depositMode": "SIMPLE", "swapType": "EXACT_INPUT", "slippageTolerance": 100,
+            "originAsset": origin_asset, "depositType": "ORIGIN_CHAIN", "destinationAsset": destination_asset,
+            "amount": amount.to_string(), "refundTo": refund_to, "refundType": "ORIGIN_CHAIN",
+            "recipient": recipient, "recipientType": "DESTINATION_CHAIN", "deadline": "2026-11-09T06:00:00.000Z",
+            "confidentiality": "public", "quoteWaitingTimeMs": 0, "insured": false,
+        });
+        let amount_out = amount - amount / 1000;
+        let quote = json!({
+            "amountIn": amount.to_string(), "amountInFormatted": "x", "amountInUsd": "x", "minAmountIn": amount.to_string(),
+            "amountOut": amount_out.to_string(), "amountOutFormatted": "x", "amountOutUsd": "x", "minAmountOut": (amount_out - 1000).to_string(),
+            "timeEstimate": 22, "refundFee": "4528", "withdrawFee": "2400",
+            "deadline": "2026-11-12T06:00:00.000Z", "timeWhenInactive": "2026-11-12T06:00:00.000Z",
+            "depositAddress": "702bb1cdf6e6d1f80776679b6e0f2745226efd76cda7563fe0f45ee1d1929d87"
+        });
+        let timestamp = "2026-11-08T20:25:36.811Z";
+        let mut m: BTreeMap<&str, Value> = BTreeMap::new();
+        for k in ["dry", "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset", "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline"] {
+            m.insert(k, request[k].clone());
+        }
+        for k in ["amountIn", "amountInFormatted", "amountInUsd", "minAmountIn", "amountOut", "amountOutFormatted", "amountOutUsd", "minAmountOut", "depositAddress", "deadline", "timeWhenInactive", "timeEstimate", "refundFee", "withdrawFee"] {
+            m.insert(k, quote[k].clone());
+        }
+        m.insert("timestamp", Value::String(timestamp.into()));
+        let canonical = format!("{{{}}}", m.iter().map(|(k, v)| format!("{}:{}", near_sdk::serde_json::to_string(k).unwrap(), near_sdk::serde_json::to_string(v).unwrap())).collect::<Vec<_>>().join(","));
+        let message = bs58::encode(env::sha256(canonical.as_bytes())).into_string();
+        let signature = format!("ed25519:{}", bs58::encode(signer.sign(message.as_bytes()).to_bytes()).into_string());
+        json!({"quote": quote, "quoteRequest": request, "signature": signature, "timestamp": timestamp, "correlationId": "unit"}).to_string()
+    }
+
+    /// Contract with a test 1Click key, one token plan paying r0 and r1 100 USD each, and
+    /// r0 registered for Base USDC, r1 for Solana USDC.
+    fn setup() -> (Contract, SigningKey, Plan) {
+        let mut c = new_contract();
+        let signer = SigningKey::generate(&mut rand::rngs::OsRng);
+        testing_env!(ctx(accounts(0), 0, 1_000).build());
+        c.set_config(None, None, None, Some(format!("ed25519:{}", bs58::encode(signer.verifying_key().to_bytes()).into_string())));
+        testing_env!(ctx(recipient(0), NEAR / 10, 1_000).build());
+        c.register_destination(BASE_USDC.into(), BASE_ADDR.into());
+        testing_env!(ctx(recipient(1), NEAR / 10, 1_000).build());
+        c.register_destination(SOL_USDC.into(), SOL_ADDR.into());
+        let mut plan_input = input(3600, &[100 * USD, 100 * USD]);
+        plan_input.asset = Asset::Ft { contract: token() };
+        let msg = near_sdk::serde_json::to_string(&FtMessage::CreatePlan { plan: plan_input }).unwrap();
+        testing_env!(ctx(token(), 0, 1_000).build());
+        let _ = c.ft_on_transfer(dao(), U128(300 * USD), msg);
+        let plan = c.get_plan(1).unwrap();
+        assert_eq!(plan.asset, Asset::Ft { contract: token() });
+        (c, signer, plan)
+    }
+
+    fn origin() -> String {
+        format!("nep141:{}", token())
+    }
+
+    #[test]
+    fn evm_destination_matches_regardless_of_case() {
+        let (c, signer, plan) = setup();
+        let r0 = &plan.recipients[0];
+        for addr in [BASE_ADDR.to_string(), BASE_ADDR.to_lowercase(), format!("0x{}", BASE_ADDR[2..].to_uppercase())] {
+            let quote = signed_quote(&signer, &origin(), BASE_USDC, 100 * USD, &addr, r0.account_id.as_str());
+            let route = c.verify_route(&plan, r0, &quote, 1_000);
+            assert_eq!(route.destination_address, addr);
+            assert_eq!(route.destination_asset, BASE_USDC);
+        }
+    }
+
+    #[test]
+    fn solana_destination_matches_exactly() {
+        let (c, signer, plan) = setup();
+        let r1 = &plan.recipients[1];
+        let quote = signed_quote(&signer, &origin(), SOL_USDC, 100 * USD, SOL_ADDR, r1.account_id.as_str());
+        let route = c.verify_route(&plan, r1, &quote, 1_000);
+        assert_eq!(route.destination_address, SOL_ADDR);
+        assert_eq!(route.destination_asset, SOL_USDC);
+    }
+
+    #[test]
+    #[should_panic(expected = "Route recipient address differs from the recipient's registration")]
+    fn solana_destination_with_different_case_is_refused() {
+        let (c, signer, plan) = setup();
+        let r1 = &plan.recipients[1];
+        let quote = signed_quote(&signer, &origin(), SOL_USDC, 100 * USD, &SOL_ADDR.to_lowercase(), r1.account_id.as_str());
+        c.verify_route(&plan, r1, &quote, 1_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Route recipient address differs from the recipient's registration")]
+    fn evm_destination_for_other_address_is_refused() {
+        let (c, signer, plan) = setup();
+        let r0 = &plan.recipients[0];
+        let quote = signed_quote(&signer, &origin(), BASE_USDC, 100 * USD, "0x1111111111111111111111111111111111111111", r0.account_id.as_str());
+        c.verify_route(&plan, r0, &quote, 1_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "quoteRequest.swapType must be EXACT_INPUT")]
+    fn exact_output_quotes_are_refused() {
+        let (c, signer, plan) = setup();
+        let r0 = &plan.recipients[0];
+        let quote = signed_quote(&signer, &origin(), BASE_USDC, 100 * USD, BASE_ADDR, r0.account_id.as_str())
+            .replace("\"swapType\":\"EXACT_INPUT\"", "\"swapType\":\"EXACT_OUTPUT\"");
+        c.verify_route(&plan, r0, &quote, 1_000);
+    }
 }

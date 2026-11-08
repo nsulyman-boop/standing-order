@@ -31,3 +31,5 @@ lto = true
 debug = false
 panic = "abort"
 overflow-checks = true
+# Drop the `name` custom section so every machine produces the same ~410 KB artifact.
+strip = true

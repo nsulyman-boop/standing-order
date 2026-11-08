@@ -11,9 +11,21 @@ console.log(`DAO token balance: ${fmt(await view<string>(cfg.token, "ft_balance_
 for (const p of plans) {
   const isFt = typeof p.asset === "object";
   const f = isFt ? fmt : (v: string) => yoctoToNear(v) + " NEAR";
+  const perRun = p.recipients.reduce((a: bigint, r: any) => a + BigInt(r.amount), 0n);
+  const ended = p.end_at !== null && (p.end_at <= now || p.next_run_at > p.end_at);
+  const underfunded = p.status === "Active" && BigInt(p.balance) < perRun;
+  const when = ended
+    ? "ended"
+    : p.next_run_at - now >= 0
+      ? "in " + (p.next_run_at - now) + "s"
+      : underfunded
+        ? "underfunded, needs top-up"
+        : p.status === "Active"
+          ? "due"
+          : p.status.toLowerCase();
   console.log(`\nPlan #${p.id} "${p.title}" [${p.status}] owner=${p.owner}`);
-  console.log(`  every ${p.interval_seconds}s | next run ${new Date(p.next_run_at * 1000).toISOString()} (${p.next_run_at - now >= 0 ? "in " + (p.next_run_at - now) + "s" : "due"}) | runs done ${p.runs_completed}`);
-  console.log(`  balance ${f(p.balance)} | per run ${f(p.recipients.reduce((a: bigint, r: any) => a + BigInt(r.amount), 0n).toString())} | cap ${f(p.cap_per_run)}`);
+  console.log(`  every ${p.interval_seconds}s | next run ${new Date(p.next_run_at * 1000).toISOString()} (${when}) | runs done ${p.runs_completed}${p.end_at !== null ? ` | ends ${new Date(p.end_at * 1000).toISOString()}` : ""}`);
+  console.log(`  balance ${f(p.balance)} | per run ${f(perRun.toString())} | cap ${f(p.cap_per_run)}${underfunded ? " | UNDERFUNDED: balance below one run, top up before the next run" : ""}`);
   for (const r of p.recipients) console.log(`  - ${r.account_id}: ${f(r.amount)}`);
   const payouts = await view<any[]>(cfg.contract, "get_payouts", { plan_id: p.id, from_seq: Math.max(0, p.payout_count - 12), limit: 12 });
   if (payouts.length) {

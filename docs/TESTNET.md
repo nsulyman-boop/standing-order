@@ -48,3 +48,37 @@
 - `dev1.standing-order.testnet` registered a destination (USDC on Base). On testnet the keeper logs
   `route unavailable, paying on NEAR` because 1Click rejects the testnet token (`tokenIn is not valid`), and pays on NEAR.
 - Contract redeployed with `--migrate` (v0.1 → routes); plan history preserved.
+- Proposals #8–#13 (2026-11-08, ~22:03 UTC, all approved by the 2-of-2 council): #8 `pause_plan` plan #1,
+  #9 `resume_plan` plan #1 with `skip_missed: true` (missed periods dropped, schedule re-aligned to now), #10 `pause_plan`
+  plan #2, #11 `resume_plan` plan #2 with `skip_missed: true`, #12 top-up plan #1 with 7,200 USDC.e and #13 top-up
+  plan #2 with 3,000 USDC.e (both `ft_transfer_call` → `fund_plan`). Plans #1 and #2 had run dry and showed
+  "Needs top-up" on the dashboard (and `underfunded, needs top-up` in `npm run status`) until the top-ups landed.
+
+## Run the keeper
+
+The keeper signs with a function-call access key that can only call `run_due` on the contract. Create the key once
+(it is written to `keeper/.env`, gitignored, see `keeper/.env.example`), then start the loop:
+
+```bash
+export NODE_USE_ENV_PROXY=1            # only needed behind a proxy
+npm run keeper:key                      # adds the run_due-only key to keeper.standing-order.testnet, writes keeper/.env
+CROSSCHAIN=dry KEEPER_HTTP_PORT=8787 npm run keeper
+# one tick instead of a loop (pays if due, otherwise prints {"event":"idle"}):
+npm run keeper:once
+```
+
+What the log lines mean (one JSON object per line):
+
+- `{"event":"key verified","receiver":"standing-order.testnet","methods":["run_due"],"allowance_near":2}`: the keeper
+  looked up its own access key on-chain and confirmed it is a function-call key limited to `run_due` on the contract.
+  It refuses to start with a full-access key or a key for another receiver/method.
+- `{"event":"route unavailable, paying on NEAR","recipient":"dev1.standing-order.testnet","error":"tokenIn is not valid"}`:
+  the recipient registered a cross-chain destination, but 1Click has no testnet and rejects `usdc.fakes.testnet`, so the
+  keeper submits the run without a route and the contract pays the recipient on NEAR. On mainnet with `CROSSCHAIN=live`
+  the same line only appears when a quote genuinely fails, and the fallback is identical: pay on NEAR, never skip.
+- `{"event":"idle","due":0}`: nothing due this tick. `{"event":"sent",...,"outcome":{"Sent":{...}}}`: a run was paid;
+  `{"event":"skipped",...,"outcome":"Paused"|{"NotDue":...}|{"Underfunded":...}}`: the contract declined.
+
+With `KEEPER_HTTP_PORT` set, `GET http://localhost:8787/` returns the live status (ticks, runs, recent outcomes); point the
+dashboard at it with `VITE_KEEPER_URL=http://localhost:8787/`. Without `VITE_KEEPER_URL` the dashboard hides the keeper pill.
+- 2026-11-08 22:19 UTC: redeployed (route shape checks, address case rule, config/storage events; stripped 409,678-byte wasm, sha256 c61d7081…). State layout unchanged, no migration.

@@ -23,7 +23,9 @@ export const cfg = {
   token: process.env.SO_TOKEN ?? "usdc.fakes.testnet",
   council: (process.env.SO_COUNCIL ?? "council1.standing-order.testnet,council2.standing-order.testnet").split(","),
   recipients: (process.env.SO_RECIPIENTS ?? "dev1.standing-order.testnet,dev2.standing-order.testnet,design.standing-order.testnet").split(","),
-  keeper: process.env.SO_KEEPER ?? "keeper.standing-order.testnet",
+  get keeper() {
+    return process.env.SO_KEEPER ?? `keeper.${this.master}`;
+  },
 };
 
 const credDir = path.join(os.homedir(), ".near-credentials", NETWORK);
