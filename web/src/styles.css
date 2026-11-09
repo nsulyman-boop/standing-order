@@ -234,6 +234,8 @@ select option { color: #000; }
   .header .pill.keeper span.text { display: none; }
   .header .pill.keeper { padding: 5px 7px; }
   .coins { height: 240px; }
+  .req { grid-template-columns: 44px minmax(0, 1fr); }
+  .req .status { grid-column: 2; justify-content: flex-start !important; flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .feed li.fresh .feed-dot, .glyphs span { animation: none; } html { scroll-behavior: auto; } }
 :root[data-theme="light"] .hero h1 .accent-word { color: #0b8f62; text-shadow: none; }

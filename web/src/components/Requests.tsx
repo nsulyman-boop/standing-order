@@ -39,7 +39,7 @@ export function Requests({ proposals, reviews = [] }: { proposals: Proposal[]; r
               <div className="desc">{summary(p.description)}</div>
               <div className="tiny mono">by {p.proposer} · {Object.keys(p.votes ?? {}).length} vote{Object.keys(p.votes ?? {}).length === 1 ? "" : "s"}{p.description.includes("[trezu-tmpl:") ? " · via Trezu template" : ""}{p.description.includes("[clerk:") ? " · drafted by the clerk" : ""}</div>
             </div>
-            <span className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+            <span className="row status" style={{ gap: 6, justifyContent: "flex-end" }}>
               <ClerkBadge review={reviews.find((r) => r.proposal_id === p.id)} />
               <span className={`chip ${p.status === "Approved" ? "active" : p.status === "InProgress" ? "blue" : "neutral"}`}>{p.status === "InProgress" ? "Voting" : p.status}</span>
             </span>
