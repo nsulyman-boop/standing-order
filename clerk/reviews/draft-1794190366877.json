@@ -1,0 +1,113 @@
+{
+  "type": "draft",
+  "dao": "payroll-demo.sputnik-v2.testnet",
+  "contract": "standing-order.testnet",
+  "plan_id": null,
+  "period": "November 2026",
+  "documents": [
+    "invoice-design.md",
+    "invoice-dev1.md",
+    "invoice-dev2.md",
+    "invoice-newjoiner.csv"
+  ],
+  "verdict": "warn",
+  "findings": [
+    {
+      "level": "warn",
+      "code": "unknown_account",
+      "message": "mod1.standing-order.testnet is not in the known contributor list",
+      "recipient": "mod1.standing-order.testnet"
+    }
+  ],
+  "recipients": [
+    {
+      "account_id": "design.standing-order.testnet",
+      "amount": "75000000",
+      "human": "75 USDC.e",
+      "source": "invoice-design.md",
+      "note": "75 USDC (up from 60 USDC: scope now includes the brand refresh agreed in the Oct 28 council call)"
+    },
+    {
+      "account_id": "dev1.standing-order.testnet",
+      "amount": "120000000",
+      "human": "120 USDC.e",
+      "source": "invoice-dev1.md",
+      "note": "120.00 USDC for backend engineering retainer, 60 hours at 2.00 USDC/hour. Same retainer as October."
+    },
+    {
+      "account_id": "dev2.standing-order.testnet",
+      "amount": "90000000",
+      "human": "90 USDC.e",
+      "source": "invoice-dev2.md",
+      "note": "90 USDC for frontend retainer. Unchanged from last month."
+    },
+    {
+      "account_id": "mod1.standing-order.testnet",
+      "amount": "40000000",
+      "human": "40 USDC.e",
+      "source": "invoice-newjoiner.csv",
+      "note": "40 USDC for community moderator. New joiner, approved in proposal #3 of the community budget."
+    }
+  ],
+  "total_per_run": "325 USDC.e",
+  "summary": "Total payroll for November 2026 is 325 USDC. Includes design retainer (75, increased from 60), backend engineering (120, unchanged), frontend engineering (90, unchanged), and new community moderator (40, approved in proposal #3).",
+  "proposal": {
+    "receiver_id": "usdc.fakes.testnet",
+    "method": "ft_transfer_call",
+    "args": {
+      "receiver_id": "standing-order.testnet",
+      "amount": "15600000000",
+      "msg": "{\"action\":\"create_plan\",\"plan\":{\"title\":\"November payroll (drafted by the clerk from 4 invoices)\",\"asset\":{\"Ft\":{\"contract\":\"usdc.fakes.testnet\"}},\"recipients\":[{\"account_id\":\"design.standing-order.testnet\",\"amount\":\"75000000\"},{\"account_id\":\"dev1.standing-order.testnet\",\"amount\":\"120000000\"},{\"account_id\":\"dev2.standing-order.testnet\",\"amount\":\"90000000\"},{\"account_id\":\"mod1.standing-order.testnet\",\"amount\":\"40000000\"}],\"interval_seconds\":1800,\"cap_per_run\":\"325000000\"}}"
+    },
+    "deposit": "1"
+  },
+  "model": "Qwen/Qwen3.8-27B",
+  "receipt": {
+    "model": "Qwen/Qwen3.8-27B",
+    "nonce": "955d6ba7745b94cec9bc714c05692d4539fde89433c069a02ef4bc3c1534450c",
+    "attestation": {
+      "model_signing_addresses": [
+        "0x835ab53d20294ef795906dff21ae4c045336aa26"
+      ],
+      "gateway_signing_address": "0xb98a789cdc4817275f5155593ba73ef2a957e779",
+      "nonce_echoed": true,
+      "has_intel_quote": true,
+      "has_nvidia_payload": true
+    },
+    "chat_id": "ec363feb843c44bb9f765c43bb2d4337",
+    "request_hash": "6ecde484c3ce4a3c7843d4bf3d54bd924ed241f8612865dfeae2f187bf5d6145",
+    "response_hash": "1152a9b2a6256b4b380b111e0d5192f46f195a92db12affd11961c2f3848c87c",
+    "signature": {
+      "text": "Qwen/Qwen3.8-27B:6ecde484c3ce4a3c7843d4bf3d54bd924ed241f8612865dfeae2f187bf5d6145:1152a9b2a6256b4b380b111e0d5192f46f195a92db12affd11961c2f3848c87c",
+      "signature": "0xbfce787ba63b516d967761ac83c7b94c97925f86d9732426a0135e826c0246ae55ec01be18db8c36cf56294ef819d47c2a5dec23cca087cf8a7ce9723ffd97731c",
+      "signing_address": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+      "signing_algo": "ecdsa",
+      "signature_kind": "provider_tee"
+    },
+    "recovered_signer": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+    "verified": true,
+    "signed_by": "provider_tee",
+    "checks": [
+      "signed text = model:sha256(request):sha256(response)",
+      "signer matches exactly one attested model TEE",
+      "attestation nonce echoed (fresh report)"
+    ],
+    "usage": {
+      "prompt_tokens": 578,
+      "total_tokens": 971,
+      "completion_tokens": 393,
+      "prompt_tokens_details": {
+        "cached_tokens": 192
+      },
+      "reasoning_tokens": 0,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "at": "2026-11-09T02:12:33.963Z"
+  },
+  "at": "2026-11-09T02:12:35.525Z",
+  "review_hash": "7ab68af5a400ab4aadffb7e90498122911adb84b276d8cb9b19cea1427dae972",
+  "proposal_id": 23,
+  "proposal_status": "Approved"
+}

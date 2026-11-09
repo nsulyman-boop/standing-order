@@ -1,0 +1,134 @@
+{
+  "type": "draft",
+  "dao": "payroll-demo.sputnik-v2.testnet",
+  "contract": "standing-order.testnet",
+  "plan_id": 3,
+  "period": "November 2026",
+  "documents": [
+    "invoice-design.md",
+    "invoice-dev1.md",
+    "invoice-dev2.md",
+    "invoice-newjoiner.csv"
+  ],
+  "verdict": "warn",
+  "findings": [
+    {
+      "level": "warn",
+      "code": "new_recipient",
+      "message": "mod1.standing-order.testnet is new on this plan (40 USDC.e per run)",
+      "recipient": "mod1.standing-order.testnet"
+    },
+    {
+      "level": "warn",
+      "code": "unknown_account",
+      "message": "mod1.standing-order.testnet is not in the known contributor list",
+      "recipient": "mod1.standing-order.testnet"
+    }
+  ],
+  "recipients": [
+    {
+      "account_id": "design.standing-order.testnet",
+      "amount": "75000000",
+      "human": "75 USDC.e",
+      "source": "invoice-design.md",
+      "note": "75 USDC (up from 60 USDC: scope now includes the brand refresh agreed in the Oct 28 council call)"
+    },
+    {
+      "account_id": "dev1.standing-order.testnet",
+      "amount": "120000000",
+      "human": "120 USDC.e",
+      "source": "invoice-dev1.md",
+      "note": "120.00 USDC for backend engineering retainer, 60 hours at 2.00 USDC/hour. Same retainer as October."
+    },
+    {
+      "account_id": "dev2.standing-order.testnet",
+      "amount": "90000000",
+      "human": "90 USDC.e",
+      "source": "invoice-dev2.md",
+      "note": "90 USDC for frontend retainer. Unchanged from last month."
+    },
+    {
+      "account_id": "mod1.standing-order.testnet",
+      "amount": "40000000",
+      "human": "40 USDC.e",
+      "source": "invoice-newjoiner.csv",
+      "note": "40 USDC for Community moderator. New joiner, approved in proposal #3 of the community budget."
+    }
+  ],
+  "total_per_run": "325 USDC.e",
+  "summary": "Total payroll for November 2026 is 325 USDC. Includes 3 core team members (dev1, dev2, design) and 1 new community moderator (mod1). Design retainer increased from 60 to 75 USDC due to expanded scope.",
+  "proposal": {
+    "receiver_id": "standing-order.testnet",
+    "method": "update_plan",
+    "args": {
+      "plan_id": 3,
+      "update": {
+        "recipients": [
+          {
+            "account_id": "design.standing-order.testnet",
+            "amount": "75000000"
+          },
+          {
+            "account_id": "dev1.standing-order.testnet",
+            "amount": "120000000"
+          },
+          {
+            "account_id": "dev2.standing-order.testnet",
+            "amount": "90000000"
+          },
+          {
+            "account_id": "mod1.standing-order.testnet",
+            "amount": "40000000"
+          }
+        ],
+        "cap_per_run": "325000000"
+      }
+    },
+    "deposit": "10000000000000000000000"
+  },
+  "model": "Qwen/Qwen3.8-27B",
+  "receipt": {
+    "model": "Qwen/Qwen3.8-27B",
+    "nonce": "8f094eb3afd7a57e3f6858b67638294d4f2d42bd42874696426927c4a3ebb327",
+    "attestation": {
+      "model_signing_addresses": [
+        "0x835ab53d20294ef795906dff21ae4c045336aa26"
+      ],
+      "gateway_signing_address": "0xb98a789cdc4817275f5155593ba73ef2a957e779",
+      "nonce_echoed": true,
+      "has_intel_quote": true,
+      "has_nvidia_payload": true
+    },
+    "chat_id": "06165db932df45acb2f4f267b27fe32b",
+    "request_hash": "2dafc291447f28ef3adf9584166c9eba4e17ebc146c8e88411f5756712a0e8ac",
+    "response_hash": "a1df1d480dcfccb67c73be13dcd215b033f0ff665365f5325efcf4818e478786",
+    "signature": {
+      "text": "Qwen/Qwen3.8-27B:2dafc291447f28ef3adf9584166c9eba4e17ebc146c8e88411f5756712a0e8ac:a1df1d480dcfccb67c73be13dcd215b033f0ff665365f5325efcf4818e478786",
+      "signature": "0x29759c060dca7637596b0b2bcc1e3904f7eba60f71c3b6ab950638bfe4b33d64271b9a58db3b28b47c672eed809b72d29108c76e92bdfc073f15b95e733307241c",
+      "signing_address": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+      "signing_algo": "ecdsa",
+      "signature_kind": "provider_tee"
+    },
+    "recovered_signer": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+    "verified": true,
+    "signed_by": "provider_tee",
+    "checks": [
+      "signed text = model:sha256(request):sha256(response)",
+      "signer matches exactly one attested model TEE",
+      "attestation nonce echoed (fresh report)"
+    ],
+    "usage": {
+      "prompt_tokens": 633,
+      "total_tokens": 1020,
+      "completion_tokens": 387,
+      "prompt_tokens_details": null,
+      "reasoning_tokens": 0,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "at": "2026-11-09T02:09:54.729Z"
+  },
+  "at": "2026-11-09T02:09:54.730Z",
+  "review_hash": "e8c71a673945eb53d2c51171a191c76751df47169d8afa5e457a3c87001a347c"
+}

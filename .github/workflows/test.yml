@@ -35,6 +35,8 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - name: Clerk deterministic checks
+        run: npm test
       - run: ./trezu-templates/fetch-trezu.sh
       - run: npm run trezu:generate -- testnet
       # Validates and compiles the templates only; never --submit from CI.

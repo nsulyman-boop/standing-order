@@ -1,6 +1,7 @@
 import type { Proposal } from "../near";
 import { proposalTouchesStandingOrder } from "../near";
 import { DAO, EXPLORER } from "../config";
+import { ClerkBadge, type ReviewIndexItem } from "./ClerkPanel";
 
 function label(info: { kind: string; method?: string; args?: any }): string {
   switch (info.method) {
@@ -19,7 +20,7 @@ function summary(desc: string): string {
   return m ? m[1] : desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
 }
 
-export function Requests({ proposals }: { proposals: Proposal[] }) {
+export function Requests({ proposals, reviews = [] }: { proposals: Proposal[]; reviews?: ReviewIndexItem[] }) {
   const ours = proposals.map((p) => ({ p, info: proposalTouchesStandingOrder(p) })).filter((x) => x.info);
   return (
     <div className="card pad">
@@ -36,9 +37,12 @@ export function Requests({ proposals }: { proposals: Proposal[] }) {
             <div>
               <div className="what">{label(info!)}</div>
               <div className="desc">{summary(p.description)}</div>
-              <div className="tiny mono">by {p.proposer} · {Object.keys(p.votes ?? {}).length} vote{Object.keys(p.votes ?? {}).length === 1 ? "" : "s"}{p.description.includes("[trezu-tmpl:") ? " · via Trezu template" : ""}</div>
+              <div className="tiny mono">by {p.proposer} · {Object.keys(p.votes ?? {}).length} vote{Object.keys(p.votes ?? {}).length === 1 ? "" : "s"}{p.description.includes("[trezu-tmpl:") ? " · via Trezu template" : ""}{p.description.includes("[clerk:") ? " · drafted by the clerk" : ""}</div>
             </div>
-            <span className={`chip ${p.status === "Approved" ? "active" : p.status === "InProgress" ? "blue" : "neutral"}`}>{p.status === "InProgress" ? "Voting" : p.status}</span>
+            <span className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+              <ClerkBadge review={reviews.find((r) => r.proposal_id === p.id)} />
+              <span className={`chip ${p.status === "Approved" ? "active" : p.status === "InProgress" ? "blue" : "neutral"}`}>{p.status === "InProgress" ? "Voting" : p.status}</span>
+            </span>
           </div>
         ))
       )}

@@ -79,3 +79,14 @@ salary. Future work: shielded payouts, where the plan records a commitment and t
 - Keeper key allowance is immutable once set; add a new key when it is spent.
 - Fiat: out of scope. Standing Order pays tokens to accounts and addresses; off-ramping, invoicing and tax
   reporting are left to the recipient or to tools built on the payout events.
+
+## Payroll clerk (NEAR AI Cloud)
+- Inputs (invoices, agreements) go only to a NEAR-operated model in a TEE; the clerk keeps the exact request/response
+  hashes, a nonce-bound attestation summary and the model-TEE signature, and the dashboard shows whether they verify.
+- What is proven: the model identity and enclave attestation, and that this exact output came from this exact input.
+  What is not: that the output is correct. Deterministic checks (`clerk/src/checks.ts`) and on-chain lookups run
+  regardless, and the model may only restate or add observations, never remove findings.
+- The clerk never signs transactions on its own. It files proposals only with `--file`, through the same council
+  account and Sputnik vote as a human would, and refuses to file when a blocking finding exists.
+- Residual trust: NEAR AI Cloud's gateway and NVIDIA/Intel attestation roots; the clerk does not yet replay the TDX
+  event log or query NVIDIA NRAS (see clerk/README.md).

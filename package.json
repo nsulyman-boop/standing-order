@@ -24,12 +24,16 @@
     "demo": "./scripts/demo-full-loop.sh",
     "trezu:check": "tsx --tsconfig trezu-templates/tsconfig.json trezu-templates/check.ts",
     "trezu:generate": "tsx trezu-templates/generate.ts",
-    "pool-funds": "tsx scripts/pool-funds.ts"
+    "pool-funds": "tsx scripts/pool-funds.ts",
+    "clerk": "tsx clerk/src/index.ts",
+    "test": "tsx --test clerk/test/*.test.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",
     "bs58": "^6.0.0",
+    "ethers": "^6.17.0",
     "near-api-js": "^7.4.0",
+    "pdf-parse": "^1.1.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

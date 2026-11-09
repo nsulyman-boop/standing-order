@@ -7,6 +7,7 @@ import { DestinationPanel } from "./components/DestinationPanel";
 import { LiveFeed, ago, useRecentPayouts } from "./components/LiveFeed";
 import { Coins3D } from "./components/Coins3D";
 import { Particles } from "./components/Particles";
+import { ClerkPanel, useClerkReviews } from "./components/ClerkPanel";
 import { CONTRACT, DAO, EXPLORER, KEEPER_URL, NETWORK, REPO_URL } from "./config";
 import { formatAmount, formatCountdown, sum } from "./format";
 import { getDaoProposals, getPlans, getTokenBalance, getTokenMeta, type Plan, type Proposal, type TokenMeta } from "./near";
@@ -114,6 +115,7 @@ export default function App() {
   };
 
   const feed = useRecentPayouts(plans);
+  const reviews = useClerkReviews();
   const lastPayout = feed[0]?.timestamp;
   const active = plans.filter((p) => p.status === "Active");
   const totalPaid = useMemo(() => {
@@ -139,6 +141,7 @@ export default function App() {
             <a href="#plans">Plans</a>
             <a href="#live">Live</a>
             <a href="#requests">Requests</a>
+            <a href="#clerk">Clerk</a>
             <a href="#destination">Get paid</a>
           </nav>
           <div className="spacer" />
@@ -226,14 +229,16 @@ export default function App() {
 
           <div className="col">
             <div id="live"><LiveFeed items={feed} meta={meta} nowMs={nowMs} /></div>
-            <div id="requests"><Requests proposals={proposals} /></div>
+            <div id="requests"><Requests proposals={proposals} reviews={reviews} /></div>
+            <ClerkPanel reviews={reviews} />
             <div id="destination"><DestinationPanel accountId={wallet.accountId} connected={wallet.connected} onSignIn={wallet.signIn} onSignOut={wallet.signOut} call={wallet.call} /></div>
             <div className="card pad">
               <h2 style={{ marginBottom: 12 }}>How it works</h2>
               <div className="steps" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="step"><div className="n">01 · one vote</div><b>The treasury funds a plan</b>The council approves a single proposal: token amount, recipients, cadence, cap. Trezu templates make it a form.</div>
                 <div className="step"><div className="n">02 · code pays</div><b>Runs execute on schedule</b>A keeper with a key that can only call <code>run_due</code> triggers each period. No signatures on payday, no partial runs, failed transfers re-credit.</div>
-                <div className="step"><div className="n">03 · any chain</div><b>Recipients choose where</b>Register a destination and the contract pays a 1Click deposit address it verified was signed for you. Refunds go to you.</div>
+                <div className="step"><div className="n">03 · private clerk</div><b>Checked before the vote</b>A NEAR AI model in a TEE reviews or drafts the payroll from invoices; every verdict carries a signed, re-verifiable receipt.</div>
+                <div className="step"><div className="n">04 · any chain</div><b>Recipients choose where</b>Register a destination and the contract pays a 1Click deposit address it verified was signed for you. Refunds go to you.</div>
               </div>
             </div>
           </div>

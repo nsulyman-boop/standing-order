@@ -11,10 +11,12 @@ contract pays every contributor on schedule, within the caps the council set, un
 pauses or cancels it. A keeper that holds a key able to call only `run_due` triggers each period.
 Contributors choose where they get paid: on NEAR, or on Base, Arbitrum, Ethereum or Solana through
 NEAR Intents, and the contract verifies 1Click's own signature on every cross-chain route before it
-pays a deposit address. It plugs into Trezu through custom proposal templates, compiled and filed
+pays a deposit address. A **private payroll clerk** on NEAR AI Cloud drafts proposals from contributor
+invoices and briefs the council before each vote, inside a TEE and with a signed, re-verifiable receipt.
+It plugs into Trezu through custom proposal templates, compiled and filed
 with Trezu's own template engine; no Trezu code is modified.
 
-Built at NEAR HACKATHON (Nov 2026). Tracks: `social` (Social Money), `realworld` (Real-World Money), `business`.
+Built at NEAR HACKATHON (Nov 2026). Tracks: `social` (Social Money), `realworld` (Real-World Money), `business` (Autonomous Business), `privacy` (Privacy & Private AI).
 
 ![Dashboard](docs/screenshots/desktop.png)
 
@@ -73,6 +75,7 @@ NEAR tools and why each one is needed:
 | **Trezu custom proposal templates** | Six manifests turn those proposals into forms inside Trezu; validated and compiled with Trezu's own engine (`trezu-templates/`). |
 | **Function-call access keys** | The keeper account holds a key restricted to `standing-order.testnet::run_due`. The keeper refuses to start with anything broader. |
 | **NEAR Intents 1Click API** | Cross-chain delivery. Quotes are signed by 1Click; the contract re-derives the signed message (`base58(sha256(stable_json))`) and checks it with `env::ed25519_verify`. |
+| **NEAR AI Cloud** (confidential inference) | The payroll clerk (`clerk/`): reads invoices, drafts the proposal, flags units slips, duplicates, unknown or unregistered accounts, raises and runway; runs on a NEAR-operated TEE model with nonce-bound attestation and a signed response receipt the dashboard re-verifies. |
 | **Named accounts** | Recipients and treasuries are human-readable; no address-poisoning vector on the NEAR leg. |
 | **NEP-141 / NEP-297** | Token funding through `ft_transfer_call`; every plan, payout and config change emits a standard event. |
 
@@ -179,6 +182,7 @@ signing key, and the unit test `real_live_quote_verifies` checks a genuine 1Clic
 | `contract/test-contracts/test-token` | Minimal NEP-141 token used only by sandbox tests. |
 | `keeper/` | TypeScript keeper: `run_due`-only key, split-run continuation, 1Click quoting, swap tracking, status endpoint. |
 | `scripts/` | Testnet operations: accounts, deploy (+ `--migrate`), DAO creation, token setup, proposals, votes, keeper key, status/watch. |
+| `clerk/` | Private payroll clerk: NEAR AI Cloud TEE inference with attestation + signature verification, deterministic checks, review/draft/file commands, sample invoices, published reviews. |
 | `trezu-templates/` | Trezu manifests per network, generator, and a checker that runs Trezu's real validator/engine and can file the compiled proposal. |
 | `web/` | Dashboard (Vite + React) in NEAR's brand system; Playwright smoke test. |
 | `docs/` | See the table below. |

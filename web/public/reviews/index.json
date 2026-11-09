@@ -1,0 +1,23 @@
+[
+  {
+    "file": "proposal-23.json",
+    "proposal_id": 23,
+    "type": "draft",
+    "verdict": "warn",
+    "headline": "Total payroll for November 2026 is 325 USDC. Includes design retainer (75, increased from 60), backend engineering (120, unchanged), frontend engineering (90, unchanged), and new community moderator (40, approved in proposal #3).",
+    "verified": true,
+    "model": "Qwen/Qwen3.8-27B",
+    "at": "2026-11-09T02:12:35.525Z"
+  },
+  {
+    "file": "proposal-7.json",
+    "proposal_id": 7,
+    "type": "review",
+    "verdict": "ok",
+    "recommend": "ask",
+    "headline": "Creates a 10-minute cadence payroll plan for 3 devs totaling 270 USDC.e per run, funded for 24 runs.",
+    "verified": true,
+    "model": "Qwen/Qwen3.8-27B",
+    "at": "2026-11-09T02:09:40.797Z"
+  }
+]

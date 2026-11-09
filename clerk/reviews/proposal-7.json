@@ -1,0 +1,92 @@
+{
+  "type": "review",
+  "proposal_id": 7,
+  "dao": "payroll-demo.sputnik-v2.testnet",
+  "contract": "standing-order.testnet",
+  "verdict": "ok",
+  "findings": [
+    {
+      "level": "info",
+      "code": "cadence",
+      "message": "Cadence is every 600s (10 min): fine for a demo, unusual for payroll"
+    },
+    {
+      "level": "info",
+      "code": "runway",
+      "message": "Funding covers 24 runs (6480 / 270 USDC.e)"
+    }
+  ],
+  "facts": {
+    "kind": "create_plan",
+    "method": "ft_transfer_call",
+    "fund_amount": "6480000000"
+  },
+  "brief": {
+    "headline": "Creates a 10-minute cadence payroll plan for 3 devs totaling 270 USDC.e per run, funded for 24 runs.",
+    "what_changes": [
+      "Creates a standing order plan titled 'Core team retainer, every 10 minutes' on the standing-order contract.",
+      "Sets a cadence of 600 seconds (10 minutes) with no start or end date specified.",
+      "Allocates 120 USDC.e to dev1, 90 USDC.e to dev2, and 60 USDC.e to design per run.",
+      "Sets a cap of 270 USDC.e per run, matching the sum of individual allocations.",
+      "Transfers 6,480 USDC.e from the treasury to fund the plan for 24 runs."
+    ],
+    "risks": [
+      "Cadence is every 600s (10 min): fine for a demo, unusual for payroll",
+      "Funding covers 24 runs (6480 / 270 USDC.e)",
+      "No end date is set, meaning the plan will continue indefinitely after the 24 funded runs if not manually stopped (model)",
+      "The 10-minute interval is highly irregular for standard payroll, potentially indicating a test or misconfiguration (model)"
+    ],
+    "questions_for_proposer": [
+      "Is the 10-minute cadence intentional for this payroll plan, or is it a test configuration?",
+      "What is the plan for stopping the plan after the 24 funded runs, given no end date is set?",
+      "Why is the funding amount exactly sufficient for 24 runs with no buffer for potential failures or adjustments?"
+    ],
+    "recommend": "ask"
+  },
+  "model": "Qwen/Qwen3.8-27B",
+  "receipt": {
+    "model": "Qwen/Qwen3.8-27B",
+    "nonce": "602f3089cbffdf0781e3810081d081dc8bc985ea6173a54c6c55cf0453ff26aa",
+    "attestation": {
+      "model_signing_addresses": [
+        "0x835ab53d20294ef795906dff21ae4c045336aa26"
+      ],
+      "gateway_signing_address": "0xb98a789cdc4817275f5155593ba73ef2a957e779",
+      "nonce_echoed": true,
+      "has_intel_quote": true,
+      "has_nvidia_payload": true
+    },
+    "chat_id": "7eb92362da4d4bcbafe5d7754e21f0fe",
+    "request_hash": "c4ae39eaacb1065411ae4d541c8d5f02c0eabf93e9f568ae4c266238bc829d04",
+    "response_hash": "6e32893275f18adc589afb03ff2cc4fb4122c25a873d2a87daa892f134abc231",
+    "signature": {
+      "text": "Qwen/Qwen3.8-27B:c4ae39eaacb1065411ae4d541c8d5f02c0eabf93e9f568ae4c266238bc829d04:6e32893275f18adc589afb03ff2cc4fb4122c25a873d2a87daa892f134abc231",
+      "signature": "0xca6d75d9d1090246340fd2874f4b9573a79a934f4500360ee229bcdef1aa577737c9c72ab409775cb785b6cb36991bbb73027e8c8b6083d952eb1a930f21d8871b",
+      "signing_address": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+      "signing_algo": "ecdsa",
+      "signature_kind": "provider_tee"
+    },
+    "recovered_signer": "0x835ab53d20294ef795906dff21ae4c045336aa26",
+    "verified": true,
+    "signed_by": "provider_tee",
+    "checks": [
+      "signed text = model:sha256(request):sha256(response)",
+      "signer matches exactly one attested model TEE",
+      "attestation nonce echoed (fresh report)"
+    ],
+    "usage": {
+      "prompt_tokens": 608,
+      "total_tokens": 1011,
+      "completion_tokens": 403,
+      "prompt_tokens_details": {
+        "cached_tokens": 576
+      },
+      "reasoning_tokens": 0,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "at": "2026-11-09T02:09:40.793Z"
+  },
+  "at": "2026-11-09T02:09:40.797Z"
+}
