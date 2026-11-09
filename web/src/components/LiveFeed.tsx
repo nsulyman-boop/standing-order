@@ -58,7 +58,7 @@ export function LiveFeed({ items, meta, nowMs }: { items: FeedItem[]; meta: Toke
               <span className={`feed-dot ${it.status === "Failed" ? "bad" : ""}`} />
               <div className="feed-body">
                 <div>
-                  <b className="mono">{shortAccount(it.recipient, 40)}</b> received <b className="mono">{formatAmount(it.amount, meta, it.isNear)}</b>
+                  <b className="mono">{shortAccount(it.recipient, 40)}</b> received <b className="mono nowrap">{formatAmount(it.amount, meta, it.isNear)}</b>
                 </div>
                 <div className="tiny">
                   {it.planTitle} · run {it.run_index} · {it.status === "Failed" ? "failed, re-credited" : it.status.toLowerCase()} ·{" "}

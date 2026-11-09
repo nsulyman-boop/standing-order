@@ -17,7 +17,9 @@ const port = 4175;
 const server = spawn(path.join(here, "..", "node_modules", ".bin", "vite"), ["preview", "--port", String(port), "--strictPort"], { cwd: path.join(here, ".."), stdio: ["ignore", "ignore", "inherit"] });
 await new Promise((r) => setTimeout(r, 2500));
 const proxy = process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY, bypass: "localhost,127.0.0.1" } : undefined;
-const browser = await chromium.launch({ proxy, args: ["--no-sandbox"] });
+// Use the machine's preinstalled Chromium when present (CI images); else Playwright's own download.
+  const executablePath = process.env.PW_CHROMIUM || (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+  const browser = await chromium.launch({ proxy, executablePath, args: ["--no-sandbox", "--headless=new"] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, recordVideo: { dir: tmp, size: { width: 1440, height: 900 } } });
 const page = await ctx.newPage();
 await page.goto(`http://localhost:${port}/`, { waitUntil: "domcontentloaded" });

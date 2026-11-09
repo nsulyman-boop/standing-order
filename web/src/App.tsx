@@ -5,6 +5,8 @@ import { PlanDetail } from "./components/PlanDetail";
 import { Requests } from "./components/Requests";
 import { DestinationPanel } from "./components/DestinationPanel";
 import { LiveFeed, ago, useRecentPayouts } from "./components/LiveFeed";
+import { Coins3D } from "./components/Coins3D";
+import { Particles } from "./components/Particles";
 import { CONTRACT, DAO, EXPLORER, KEEPER_URL, NETWORK, REPO_URL } from "./config";
 import { formatAmount, formatCountdown, sum } from "./format";
 import { getDaoProposals, getPlans, getTokenBalance, getTokenMeta, type Plan, type Proposal, type TokenMeta } from "./near";
@@ -34,6 +36,13 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [triggering, setTriggering] = useState<number | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try { return (localStorage.getItem("so-theme") as "dark" | "light") || "dark"; } catch { return "dark"; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("so-theme", theme); } catch { /* private mode */ }
+  }, [theme]);
 
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 1000);
@@ -125,10 +134,15 @@ export default function App() {
     <>
       <header className="header">
         <div className="wrap">
-          <div className="brand"><Logo /> Standing Order</div>
-          <span className="pill hide-sm"><span className="dot" style={{ background: NETWORK === "mainnet" ? "var(--green)" : "var(--purple)" }} />{NETWORK}</span>
-          <a className="pill hide-sm mono" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer">{CONTRACT} ↗</a>
+          <a className="brand" href="#top"><Logo /> Standing Order</a>
+          <nav className="nav" aria-label="Sections">
+            <a href="#plans">Plans</a>
+            <a href="#live">Live</a>
+            <a href="#requests">Requests</a>
+            <a href="#destination">Get paid</a>
+          </nav>
           <div className="spacer" />
+          <span className="pill hide-sm"><span className="dot" style={{ background: NETWORK === "mainnet" ? "var(--green)" : "var(--purple)" }} />{NETWORK}</span>
           {!KEEPER_URL && lastPayout && (
             <span className={`pill keeper ${nowMs / 1000 - lastPayout < 1800 ? "ok" : "bad"}`} title="time since the latest payout recorded on-chain">
               <span className="dot" />
@@ -141,26 +155,50 @@ export default function App() {
               <span className="text">{keeper ? (keeperFresh ? `Keeper live · ${keeper.runs} runs` : "Keeper stale") : "Keeper: no status"}</span>
             </span>
           )}
+          <button className="icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title={theme === "dark" ? "Switch to light" : "Switch to dark"} aria-label="Toggle theme">
+            {theme === "dark" ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+            )}
+          </button>
           {wallet.connected ? <button className="btn ghost sm" onClick={wallet.signOut}>{wallet.accountId.length > 22 ? wallet.accountId.slice(0, 20) + "…" : wallet.accountId}</button> : <button className="btn sm" onClick={wallet.signIn}>Connect</button>}
         </div>
       </header>
 
-      <main className="wrap">
-        <section className="hero">
-          <span className="eyebrow">Recurring payroll for NEAR treasuries</span>
-          <h1>Vote once. Pay every period. Settle on any chain.</h1>
-          <p>
-            A Sputnik DAO funds and authorises a plan in one vote. Standing Order pays each contributor on schedule, at the amounts and cadence the council
-            voted, until the council pauses it. Recipients pick the token and chain they want; NEAR Intents does the delivery.
-          </p>
-          <div className="proof row">
-            <a className="pill" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--green)" }} />Contract on {NETWORK} ↗</a>
-            <a className="pill" href={`${EXPLORER}/address/${DAO}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--purple)" }} />Sputnik DAO treasury ↗</a>
-            <a className="pill" href={`${REPO_URL}/actions/workflows/test.yml`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--blue)" }} />49 tests passing in CI ↗</a>
-            <a className="pill" href={REPO_URL} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--ink)" }} />Open source ↗</a>
+      <section className="hero" id="top">
+        <div className="glow" />
+        <Particles />
+        <div className="wrap">
+          <div>
+            <span className="eyebrow">Recurring payroll for NEAR treasuries</span>
+            <h1>Vote once.<br />Pay every period.<br /><span className="accent-word">Settle anywhere.</span></h1>
+            <p className="lede">
+              A Sputnik DAO funds and authorises a plan in one vote. Standing Order pays each contributor on schedule, at the amounts and cadence
+              the council voted, until the council pauses it. Recipients pick the token and chain they want; NEAR Intents does the delivery.
+            </p>
+            <div className="cta">
+              <a className="btn" href="#live">Watch live payouts</a>
+              <a className="btn ghost" href={REPO_URL} target="_blank" rel="noreferrer">Read the code ↗</a>
+            </div>
+            <div className="proof">
+              <a className="pill" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--green)" }} />Contract on {NETWORK}</a>
+              <a className="pill" href={`${EXPLORER}/address/${DAO}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--purple)" }} />Sputnik DAO treasury</a>
+              <a className="pill" href={`${REPO_URL}/actions/workflows/test.yml`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--blue)" }} />49 tests passing in CI</a>
+            </div>
           </div>
-        </section>
+          <div className="coins">
+            <div className="glyphs" aria-hidden>
+              <span style={{ left: "4%", top: "4%" }}>run_due(3) → Sent</span>
+              <span style={{ right: "2%", top: "8%" }}>+270 USDC</span>
+              <span style={{ right: "4%", bottom: "2%" }}>refundTo = recipient</span>
+            </div>
+            <Coins3D />
+          </div>
+        </div>
+      </section>
 
+      <main className="wrap">
         <section className="stats">
           <div className="stat"><div className="label">Active plans</div><div className="value">{loaded ? active.length : "…"}</div><div className="sub">{plans.length} total on this contract</div></div>
           <div className="stat"><div className="label">Paid out so far</div><div className="value mono">{loaded ? formatAmount(totalPaid, meta, false) : "…"}</div><div className="sub">{plans.reduce((a, p) => a + p.runs_completed, 0)} runs completed</div></div>
@@ -174,7 +212,7 @@ export default function App() {
         <section className="grid">
           <div className="col">
             <div>
-              <div className="section-head"><h2>Plans</h2><span className="tiny">click a plan for history</span></div>
+              <div className="section-head" id="plans"><h2>Plans</h2><span className="tiny">click a plan for history</span></div>
               <div className="col" style={{ gap: 12 }}>
                 {!loaded && <div className="card empty">Loading plans from {CONTRACT}…</div>}
                 {loaded && plans.length === 0 && <div className="card empty">No plans yet. A DAO creates one by voting on a funding proposal.</div>}
@@ -187,9 +225,9 @@ export default function App() {
           </div>
 
           <div className="col">
-            <LiveFeed items={feed} meta={meta} nowMs={nowMs} />
-            <Requests proposals={proposals} />
-            <DestinationPanel accountId={wallet.accountId} connected={wallet.connected} onSignIn={wallet.signIn} onSignOut={wallet.signOut} call={wallet.call} />
+            <div id="live"><LiveFeed items={feed} meta={meta} nowMs={nowMs} /></div>
+            <div id="requests"><Requests proposals={proposals} /></div>
+            <div id="destination"><DestinationPanel accountId={wallet.accountId} connected={wallet.connected} onSignIn={wallet.signIn} onSignOut={wallet.signOut} call={wallet.call} /></div>
             <div className="card pad">
               <h2 style={{ marginBottom: 12 }}>How it works</h2>
               <div className="steps" style={{ gridTemplateColumns: "1fr" }}>

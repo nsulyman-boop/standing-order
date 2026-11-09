@@ -20,7 +20,9 @@ try {
   await sleep(2500);
   // Behind a corporate/CI proxy the browser needs the same proxy as curl (localhost bypassed).
   const proxy = process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY, bypass: "localhost,127.0.0.1" } : undefined;
-  const browser = await chromium.launch({ proxy, args: ["--no-sandbox"] });
+  // Use the machine's preinstalled Chromium when present (CI images); else Playwright's own download.
+  const executablePath = process.env.PW_CHROMIUM || (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+  const browser = await chromium.launch({ proxy, executablePath, args: ["--no-sandbox", "--headless=new"] });
   console.log("browser launched");
   const failures = [];
   for (const [name, viewport, scheme] of [["desktop", { width: 1366, height: 900 }, "light"], ["desktop-dark", { width: 1366, height: 900 }, "dark"], ["phone", { width: 390, height: 844 }, "light"]]) {

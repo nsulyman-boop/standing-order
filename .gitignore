@@ -14,3 +14,4 @@ keeper/.env
 trezu-templates/.trezu-src/
 web/e2e/out/
 docs/demo.webm
+web/tsconfig.tsbuildinfo
