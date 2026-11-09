@@ -92,3 +92,28 @@ dashboard at it with `VITE_KEEPER_URL=http://localhost:8787/`. Without `VITE_KEE
 - Proposals #20–#21 (retitle plan #1) were marked Approved by Sputnik although the inner `update_plan` panicked: the longer
   title needs a storage deposit and none was attached. Proposal #22 attached 0.01 NEAR and succeeded. Sputnik's Approved
   status does not prove the inner call succeeded; check the effect (`npm run status`).
+
+## 2026-11-09: guardians (emergency pause without a vote) and keeper lockdown
+
+Contract redeployed with `migrate` (state v2 → v3 adds the `guardians` map; all plans, payouts and
+destinations carried over unchanged, `get_plans` still returns the same four plans).
+
+| Step | Proof |
+|---|---|
+| DAO names `council1.standing-order.testnet` guardian of plan #1 | proposal **#24**, Approved (2 votes); `get_guardians {"plan_id":1}` → `["council1.standing-order.testnet"]` |
+| The guardian pauses plan #1 alone, no proposal | `council1` called `pause_plan {"plan_id":1}` directly at 02:38:14 UTC; `get_plan(1).status` → `Paused`; event `plan_paused` with `"by":"council1.standing-order.testnet"` |
+| Resuming needs the full vote | proposal **#25** `resume_plan {"plan_id":1,"skip_missed":true}`, Approved (2 votes); status back to `Active` |
+| A non-guardian cannot pause | unit test `stranger_cannot_pause`; sandbox test `native_plans` step 4 (keeper's `pause_plan` fails with `Only the plan owner`) |
+
+Trezu template for this call: `trezu-templates/testnet/so-set-guardians.json` (seven templates now compile with Trezu's engine).
+
+Keeper accounts after lockdown (`npm run keeper:lockdown`, then every FullAccess key deleted; `npm run judge` check 3 lists them):
+
+| Account | Keys | Note |
+|---|---|---|
+| `keeper.standing-order.testnet` | 3 × FunctionCall `standing-order.testnet::run_due` (allowances 1.5 / 1.88 / 0.25 NEAR), no FullAccess key | original keeper; the GitHub Actions `KEEPER_KEY` secret is one of these keys |
+| `keeper2.standing-order.testnet` | 1 × FunctionCall `standing-order.testnet::run_due` (allowance 100 NEAR), no FullAccess key; balance 14 NEAR | reference keeper from 02:42 UTC; enough gas for the judging window at ~0.003 NEAR per run |
+
+Lesson: `near-api-js` gives a function-call key a 0.25 NEAR allowance when none is passed, and once the
+FullAccess key is gone no new key can be added, which is why `keeper2` exists. The allowance only caps
+gas for `run_due`; neither account can do anything else.

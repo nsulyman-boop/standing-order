@@ -32,7 +32,7 @@ npx tsx --tsconfig trezu-templates/tsconfig.json trezu-templates/check.ts testne
 npx tsx --tsconfig trezu-templates/tsconfig.json trezu-templates/check.ts testnet --submit   # file + approve on testnet
 ```
 
-Expected: six `✓` lines, then `plan created from Trezu template` with the new plan id. The
+Expected: seven `✓` lines, then `plan created from Trezu template` with the new plan id. The
 description Trezu generates carries the `[trezu-tmpl:<id>]` tag, so the request is traceable to
 the template in Trezu's UI.
 

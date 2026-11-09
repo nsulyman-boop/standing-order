@@ -75,6 +75,16 @@ export const getConfig = () => view(CONTRACT, "get_config");
 export const getPlans = () => view<Plan[]>(CONTRACT, "get_plans", { from_index: 0, limit: 100 });
 export const getPlan = (plan_id: number) => view<Plan | null>(CONTRACT, "get_plan", { plan_id });
 export const getPayouts = (plan_id: number, from_seq: number, limit: number) => view<Payout[]>(CONTRACT, "get_payouts", { plan_id, from_seq, limit });
+/** Every payout record of a plan, oldest first, paged in chunks of 100 (the contract caps a single view at its own limit). */
+export async function getAllPayouts(plan: Pick<Plan, "id" | "payout_count">, page = 100): Promise<Payout[]> {
+  const out: Payout[] = [];
+  for (let from = 0; from < plan.payout_count; from += page) {
+    const rows = await getPayouts(plan.id, from, Math.min(page, plan.payout_count - from));
+    out.push(...rows);
+    if (rows.length === 0) break;
+  }
+  return out;
+}
 export const getRoute = (plan_id: number, seq: number) => view<RouteRecord | null>(CONTRACT, "get_route", { plan_id, seq });
 export const getDestination = (account_id: string) => view<Destination | null>(CONTRACT, "get_destination", { account_id });
 export const getPlanDestinations = (plan_id: number) => view<Array<[string, Destination]>>(CONTRACT, "get_plan_destinations", { plan_id });

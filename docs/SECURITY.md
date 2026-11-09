@@ -2,6 +2,7 @@
 
 ## Actors
 - **Treasury (plan owner)**: a Sputnik DAO. Can create/fund (via vote), pause, resume, update, cancel, sweep.
+- **Guardians**: accounts the plan owner names (`set_guardians`, or `guardians` in the plan input), e.g. one council member. Can pause a plan alone; cannot resume, change or move anything. The pause event records who did it.
 - **Keeper**: any account; the reference keeper holds a function-call key limited to `run_due`.
 - **Recipients**: NEAR accounts; may register a cross-chain destination.
 - **1Click (NEAR Intents)**: signs quotes and executes swaps off-chain.
@@ -13,6 +14,7 @@
 | Actor | Can | Cannot |
 |---|---|---|
 | Keeper (compromised key) | Trigger a due run up to one polling interval early; spend its own gas allowance; choose the slippage of the 1Click quotes it fetches (`ROUTE_SLIPPAGE_BPS`, no on-chain floor); omit a route, so a recipient with a registered destination is paid on NEAR instead of their chain | Change recipients, amounts, cadence; move funds to itself; pay a non-due plan; pay partially; route a payout without a 1Click signature over the recipient's registered address |
+| Guardian (compromised account) | Pause the plans it guards, i.e. delay pay until the DAO votes to resume (missed periods are back-paid unless the DAO says `skip_missed`) | Resume, change recipients/amounts, sweep, or touch any funds |
 | Treasury | Everything above through votes; sweep remaining balance any time (not mid-run) | Claw back a payout already sent |
 | Recipient | Register/clear their own destination | Change anyone else's destination or amounts |
 | Contract owner | Rotate the 1Click key, toggle sponsored storage | Access plan balances |

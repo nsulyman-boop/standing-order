@@ -146,16 +146,20 @@ export default function App() {
           </nav>
           <div className="spacer" />
           <span className="pill hide-sm"><span className="dot" style={{ background: NETWORK === "mainnet" ? "var(--green)" : "var(--purple)" }} />{NETWORK}</span>
-          {!KEEPER_URL && lastPayout && (
-            <span className={`pill keeper ${nowMs / 1000 - lastPayout < 1800 ? "ok" : "bad"}`} title="time since the latest payout recorded on-chain">
+          {/* Activity pill: the on-chain "last payout" is the ground truth and is always shown; when a keeper status
+              endpoint is configured its liveness is merged into the same pill so judges see both at a glance. */}
+          {(lastPayout || KEEPER_URL) && (
+            <span
+              className={`pill keeper ${KEEPER_URL && keeper ? (keeperFresh ? "ok" : "bad") : lastPayout ? (nowMs / 1000 - lastPayout < 1800 ? "ok" : "bad") : ""}`}
+              title={[lastPayout ? `latest payout recorded on-chain at ${new Date(lastPayout * 1000).toISOString()}` : "", keeper?.lastTick ? `keeper last tick ${keeper.lastTick}` : KEEPER_URL ? "keeper status endpoint unreachable" : ""].filter(Boolean).join(" · ")}
+            >
               <span className="dot" />
-              <span className="text">Last payout {ago(lastPayout, nowMs)}</span>
-            </span>
-          )}
-          {KEEPER_URL && (
-            <span className={`pill keeper ${keeper ? (keeperFresh ? "ok" : "bad") : ""}`} title={keeper?.lastTick ? `last tick ${keeper.lastTick}` : "keeper status endpoint unreachable"}>
-              <span className="dot" />
-              <span className="text">{keeper ? (keeperFresh ? `Keeper live · ${keeper.runs} runs` : "Keeper stale") : "Keeper: no status"}</span>
+              <span className="text">
+                {KEEPER_URL ? (keeper ? (keeperFresh ? `Keeper live · ${keeper.runs} runs` : "Keeper stale") : "Keeper: no status") : null}
+                {KEEPER_URL && lastPayout ? " · " : null}
+                {lastPayout ? `${KEEPER_URL ? "last" : "Last"} payout ${ago(lastPayout, nowMs)}` : null}
+              </span>
+              {lastPayout && <span className="text-sm">{ago(lastPayout, nowMs).replace(" ago", "").replace(" min", "m").replace(" h", "h").replace(" d", "d")}</span>}
             </span>
           )}
           <button className="icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title={theme === "dark" ? "Switch to light" : "Switch to dark"} aria-label="Toggle theme">
@@ -228,7 +232,7 @@ export default function App() {
           </div>
 
           <div className="col">
-            <div id="live"><LiveFeed items={feed} meta={meta} nowMs={nowMs} /></div>
+            <div id="live"><LiveFeed items={feed} meta={meta} nowMs={nowMs} plans={plans} /></div>
             <div id="requests"><Requests proposals={proposals} reviews={reviews} /></div>
             <ClerkPanel reviews={reviews} />
             <div id="destination"><DestinationPanel accountId={wallet.accountId} connected={wallet.connected} onSignIn={wallet.signIn} onSignOut={wallet.signOut} call={wallet.call} /></div>

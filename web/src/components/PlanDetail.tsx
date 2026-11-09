@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
 import type { Destination, Payout, Plan, RouteRecord, TokenMeta } from "../near";
-import { getPayouts, getPlanDestinations, getRoute } from "../near";
+import { getPayouts, getPlanDestinations, getRoute, view } from "../near";
 import { download, formatAmount, formatInterval, formatTime, shortAccount, sum, toCsv } from "../format";
-import { EXPLORER, destinationLabel } from "../config";
+import { CONTRACT, EXPLORER, destinationLabel } from "../config";
 
 export function PlanDetail({ plan, meta, keeperRuns }: { plan: Plan; meta: TokenMeta | null; keeperRuns: Array<{ plan_id: number; outcome: any; tx: string }> }) {
   const isNear = plan.asset === "Near";
   const [payouts, setPayouts] = useState<Payout[] | null>(null);
   const [routes, setRoutes] = useState<Record<number, RouteRecord>>({});
   const [dests, setDests] = useState<Record<string, Destination>>({});
+  const [guardians, setGuardians] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    view<string[]>(CONTRACT, "get_guardians", { plan_id: plan.id }).then((g) => { if (!cancelled) setGuardians(g ?? []); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [plan.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +141,11 @@ export function PlanDetail({ plan, meta, keeperRuns }: { plan: Plan; meta: Token
       <div className="note">
         Managed by the treasury, not by this page: the DAO files <b>pause</b>, <b>resume</b>, <b>top up</b>, <b>update</b> or <b>cancel</b> as proposals
         (Trezu templates in <code>trezu-templates/</code>). Anyone can trigger a due run; the keeper does it automatically.
+        {guardians.length > 0 ? (
+          <> Emergency stop: {guardians.map((g, i) => <span key={g}>{i > 0 ? ", " : ""}<code>{g}</code></span>)} can <b>pause</b> this plan alone, without a vote; resuming still needs the DAO.</>
+        ) : (
+          <> No guardian named: only a DAO vote can pause this plan.</>
+        )}
       </div>
     </div>
   );

@@ -58,3 +58,18 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  judge:
+    name: judge (zero-key checks against the live testnet deployment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      # Live RPC + offline signature checks; needs no keys or funds. See docs/JUDGE.md.
+      - run: npm run judge

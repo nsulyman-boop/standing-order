@@ -26,7 +26,10 @@
     "trezu:generate": "tsx trezu-templates/generate.ts",
     "pool-funds": "tsx scripts/pool-funds.ts",
     "clerk": "tsx clerk/src/index.ts",
-    "test": "tsx --test clerk/test/*.test.ts"
+    "test": "tsx --test clerk/test/*.test.ts",
+    "judge": "tsx scripts/judge.ts",
+    "ledger": "tsx scripts/ledger.ts",
+    "keeper:lockdown": "tsx scripts/keeper-lockdown.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",

@@ -90,6 +90,18 @@ export const manifests = [
     fields: [planId],
     args: { plan_id: "{{plan_id}}" },
   },
+  {
+    version: 1,
+    id: "so-set-guardians",
+    title: "Standing Order: name guardians who can pause without a vote",
+    summary: "Let {{guardians}} pause Standing Order plan #{{plan_id}} alone (emergency stop); resuming still needs a vote",
+    binding: { receiver_id: contract, method_name: "set_guardians", deposit: "0", gas: TGAS(30) },
+    fields: [
+      planId,
+      { name: "guardians", label: "Guardian accounts (JSON array)", type: "json", required: true, help: `Up to 10 named accounts, e.g. ["council1.near"]. An empty array removes all guardians.` },
+    ],
+    args: { plan_id: "{{plan_id}}", guardians: "{{guardians}}" },
+  },
 ];
 
 const outDir = path.join(path.dirname(fileURLToPath(import.meta.url)), network);

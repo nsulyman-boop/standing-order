@@ -82,6 +82,7 @@ p { margin: 0; }
 .nav a:hover { color: var(--ink); background: var(--surface-2); }
 .spacer { flex: 1; }
 .pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 12.5px; white-space: nowrap; text-decoration: none; }
+.pill .text-sm { display: none; }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
 .pill.ok .dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft), 0 0 12px var(--green-glow); }
 .pill.bad .dot { background: var(--red); }
@@ -200,6 +201,38 @@ td.mono, .num { font-family: var(--font-mono); }
 .feed-ago { white-space: nowrap; padding-top: 2px; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 236, 151, 0.55); } 100% { box-shadow: 0 0 0 10px rgba(0, 236, 151, 0); } }
 
+.ledger-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: -4px 0 10px; }
+.ledger-bar .tiny { color: var(--ink-2); }
+
+/* Clerk receipt: what was verified */
+.verify { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); padding: 12px 13px; min-width: 0; }
+.verify-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.verify-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.verify-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; align-items: start; min-width: 0; }
+.verify-row:last-child { border-bottom: 0; }
+.vglyph { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; margin-top: 1px; }
+.vglyph.ok { background: var(--green-soft); color: var(--green); }
+.vglyph.bad { background: var(--red-soft); color: var(--red); }
+.vglyph.info::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); }
+:root[data-theme="light"] .vglyph.ok { color: #0b8f62; }
+.vlabel { color: var(--ink); overflow-wrap: anywhere; }
+.vval { grid-column: 2; display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; min-width: 0; color: var(--ink-2); font-size: 12.5px; }
+.vval .mono { font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.vnote { color: var(--ink-3); font-size: 12px; }
+.vcopy { display: inline-flex; align-items: center; gap: 6px; padding: 2px 7px; margin: -2px 0; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--ink-2); cursor: pointer; font-size: 12.5px; max-width: 100%; }
+.vcopy:hover { border-color: var(--line-2); color: var(--ink); background: var(--surface); }
+.vcopy-hint { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.vcopy:hover .vcopy-hint { color: var(--green); }
+:root[data-theme="light"] .vcopy:hover .vcopy-hint { color: #0b8f62; }
+.verify-foot { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); font-size: 12px; color: var(--ink-2); display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: baseline; }
+.verify-foot code { color: var(--green); background: var(--green-soft); padding: 1px 6px; border-radius: 5px; }
+:root[data-theme="light"] .verify-foot code { color: #0b8f62; }
+@media (min-width: 480px) {
+  .verify-row { grid-template-columns: 18px minmax(120px, 0.55fr) minmax(0, 1fr); }
+  .vval { grid-column: 3; }
+  .verify-row:not(:has(.vval:not(:empty))) .vlabel { grid-column: 2 / -1; }
+}
+
 /* Forms */
 label { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
 input, select { font: inherit; padding: 11px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); width: 100%; }
@@ -232,7 +265,9 @@ select option { color: #000; }
 }
 @media (max-width: 600px) {
   .header .pill.keeper span.text { display: none; }
-  .header .pill.keeper { padding: 5px 7px; }
+  .header .pill.keeper { padding: 5px 9px; }
+  .header .wrap { gap: 8px; }
+  .header .pill.keeper .text-sm { display: inline; font-family: var(--font-mono); font-size: 12px; }
   .coins { height: 240px; }
   .req { grid-template-columns: 44px minmax(0, 1fr); }
   .req .status { grid-column: 2; justify-content: flex-start !important; flex-wrap: wrap; }

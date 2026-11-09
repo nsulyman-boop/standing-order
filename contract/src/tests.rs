@@ -35,6 +35,7 @@ fn input(interval: u64, amounts: &[u128]) -> PlanInput {
         start_at: None,
         end_at: None,
         cap_per_run: None,
+        guardians: None,
     }
 }
 
@@ -185,7 +186,7 @@ fn pause_blocks_runs_and_resume_restores() {
 }
 
 #[test]
-#[should_panic(expected = "Only the plan owner can do this")]
+#[should_panic(expected = "Only the plan owner or a guardian can pause")]
 fn only_owner_can_pause() {
     let mut c = new_contract();
     testing_env!(ctx(dao(), 10 * NEAR, 1_000).build());
@@ -575,4 +576,51 @@ mod routed {
             .replace("\"swapType\":\"EXACT_INPUT\"", "\"swapType\":\"EXACT_OUTPUT\"");
         c.verify_route(&plan, r0, &quote, 1_000);
     }
+}
+
+#[test]
+fn guardian_can_pause_but_not_resume() {
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 5 * NEAR, 1_000).build());
+    let id = c.create_plan(input(3600, &[NEAR]));
+    let guardian: AccountId = "council1.test.near".parse().unwrap();
+    c.set_guardians(id, vec![guardian.clone()]);
+    assert_eq!(c.get_guardians(id), vec![guardian.clone()]);
+    assert!(get_logs().iter().any(|l| l.contains("guardians_set")));
+
+    testing_env!(ctx(guardian.clone(), 0, 1_001).build());
+    c.pause_plan(id);
+    assert_eq!(c.get_plan(id).unwrap().status, PlanStatus::Paused);
+    let logs = get_logs();
+    assert!(logs.iter().any(|l| l.contains("plan_paused") && l.contains("council1.test.near")));
+
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.resume_plan(id, None)));
+    assert!(res.is_err(), "a guardian must not be able to resume");
+
+    testing_env!(ctx(dao(), 0, 1_002).build());
+    c.resume_plan(id, Some(true));
+    assert_eq!(c.get_plan(id).unwrap().status, PlanStatus::Active);
+    c.set_guardians(id, vec![]);
+    assert!(c.get_guardians(id).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "Only the plan owner or a guardian can pause")]
+fn stranger_cannot_pause() {
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 5 * NEAR, 1_000).build());
+    let id = c.create_plan(input(3600, &[NEAR]));
+    testing_env!(ctx(recipient(0), 0, 1_001).build());
+    c.pause_plan(id);
+}
+
+#[test]
+fn guardians_can_come_with_the_plan_input() {
+    let mut c = new_contract();
+    testing_env!(ctx(dao(), 5 * NEAR, 1_000).build());
+    let mut inp = input(3600, &[NEAR]);
+    let g: AccountId = "council2.test.near".parse().unwrap();
+    inp.guardians = Some(vec![g.clone()]);
+    let id = c.create_plan(inp);
+    assert_eq!(c.get_guardians(id), vec![g]);
 }

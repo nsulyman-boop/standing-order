@@ -98,6 +98,9 @@ pub struct PlanInput {
     pub end_at: Option<u64>,
     /// Defaults to the sum of recipient amounts.
     pub cap_per_run: Option<U128>,
+    /// Accounts allowed to pause the plan without a vote (emergency stop). Optional.
+    #[serde(default)]
+    pub guardians: Option<Vec<AccountId>>,
 }
 
 #[near(serializers = [json])]

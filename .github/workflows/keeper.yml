@@ -33,7 +33,8 @@ jobs:
         env:
           NEAR_NETWORK: testnet
           SO_CONTRACT: standing-order.testnet
-          KEEPER_ACCOUNT: keeper.standing-order.testnet
+          # Repository variable KEEPER_ACCOUNT overrides the default (set it together with the KEEPER_KEY secret).
+          KEEPER_ACCOUNT: ${{ vars.KEEPER_ACCOUNT || 'keeper.standing-order.testnet' }}
           KEEPER_KEY: ${{ secrets.KEEPER_KEY }}
           CROSSCHAIN: dry
           MAX_CATCHUP: "3"

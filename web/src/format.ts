@@ -11,6 +11,17 @@ export function formatUnits(amount: string | bigint, decimals: number, maxFrac =
   return fracStr ? `${wholeStr}.${fracStr}` : wholeStr;
 }
 
+/** Plain decimal (no thousands grouping, full precision, trailing zeros trimmed) for CSV / machine readers. */
+export function formatDecimal(amount: string | bigint, decimals: number): string {
+  const v = BigInt(amount);
+  const neg = v < 0n;
+  const abs = neg ? -v : v;
+  const base = 10n ** BigInt(decimals);
+  const whole = (abs / base).toString();
+  const frac = (abs % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${neg ? "-" : ""}${whole}${frac ? "." + frac : ""}`;
+}
+
 export function formatAmount(amount: string | bigint, meta: TokenMeta | null, isNear: boolean): string {
   if (isNear) return `${formatUnits(amount, 24, 3)} NEAR`;
   if (!meta) return String(amount);

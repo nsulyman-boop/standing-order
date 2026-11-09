@@ -80,6 +80,10 @@ pub fn plan_status(event: &str, plan_id: u64, by: &AccountId) {
     emit(event, json!({"plan_id": plan_id, "by": by}));
 }
 
+pub fn guardians_set(plan_id: u64, by: &AccountId, guardians: &[AccountId]) {
+    emit("guardians_set", json!({"plan_id": plan_id, "by": by, "guardians": guardians}));
+}
+
 pub fn plan_swept(plan_id: u64, to: &AccountId, amount: u128, balance: u128) {
     emit(
         "plan_swept",

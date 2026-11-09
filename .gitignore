@@ -15,3 +15,4 @@ trezu-templates/.trezu-src/
 web/e2e/out/
 docs/demo.webm
 web/tsconfig.tsbuildinfo
+keeper/.keeper-key.txt

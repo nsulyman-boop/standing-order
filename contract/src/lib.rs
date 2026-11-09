@@ -43,11 +43,12 @@ enum StorageKey {
     StorageCredits,
     Destinations,
     Routes,
+    Guardians,
 }
 
 /// State layout before cross-chain routes (v0.1). Used by `migrate`.
 #[near(serializers = [borsh])]
-pub struct ContractV1 {
+pub struct ContractV2 {
     owner_id: AccountId,
     plans: IterableMap<u64, Plan>,
     plans_by_owner: LookupMap<AccountId, Vec<u64>>,
@@ -57,6 +58,9 @@ pub struct ContractV1 {
     sponsor_storage: bool,
     min_interval_seconds: u64,
     max_recipients: u32,
+    destinations: LookupMap<AccountId, Destination>,
+    routes: LookupMap<(u64, u32), RouteRecord>,
+    oneclick_public_key: [u8; 32],
 }
 
 #[near(contract_state)]
@@ -81,6 +85,9 @@ pub struct Contract {
     routes: LookupMap<(u64, u32), RouteRecord>,
     /// Key that signs 1Click quotes. Owner-updatable in case 1Click rotates it.
     oneclick_public_key: [u8; 32],
+    /// Accounts the plan owner (the DAO) lets pause a plan without a vote: an emergency kill
+    /// switch. Only the owner can resume, update, cancel or sweep.
+    guardians: LookupMap<u64, Vec<AccountId>>,
 }
 
 #[near]
@@ -100,6 +107,7 @@ impl Contract {
             destinations: LookupMap::new(StorageKey::Destinations),
             routes: LookupMap::new(StorageKey::Routes),
             oneclick_public_key: routes::decode_public_key(routes::ONE_CLICK_MANAGER_PUB_KEY).expect("key"),
+            guardians: LookupMap::new(StorageKey::Guardians),
         }
     }
 
@@ -107,7 +115,7 @@ impl Contract {
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV1 = env::state_read().expect("no previous state");
+        let old: ContractV2 = env::state_read().expect("no previous state");
         Self {
             owner_id: old.owner_id,
             plans: old.plans,
@@ -118,9 +126,10 @@ impl Contract {
             sponsor_storage: old.sponsor_storage,
             min_interval_seconds: old.min_interval_seconds,
             max_recipients: old.max_recipients,
-            destinations: LookupMap::new(StorageKey::Destinations),
-            routes: LookupMap::new(StorageKey::Routes),
-            oneclick_public_key: routes::decode_public_key(routes::ONE_CLICK_MANAGER_PUB_KEY).expect("key"),
+            destinations: old.destinations,
+            routes: old.routes,
+            oneclick_public_key: old.oneclick_public_key,
+            guardians: LookupMap::new(StorageKey::Guardians),
         }
     }
 
@@ -295,9 +304,14 @@ impl Contract {
         }
     }
 
+    /// Pause a plan. The owner can always pause; so can any guardian the owner named
+    /// (`set_guardians` or `guardians` in the plan input), which gives a single council member an
+    /// emergency stop without waiting for a vote. Resuming needs the owner.
     pub fn pause_plan(&mut self, plan_id: u64) {
         let by = env::predecessor_account_id();
-        let plan = self.owned_plan_mut(&plan_id);
+        let is_guardian = self.guardians.get(&plan_id).map(|g| g.contains(&by)).unwrap_or(false);
+        let plan = self.plans.get_mut(&plan_id).expect("Plan not found");
+        require!(plan.owner == by || is_guardian, "Only the plan owner or a guardian can pause");
         require!(plan.status == PlanStatus::Active, "Plan is not active");
         plan.status = PlanStatus::Paused;
         plan.updated_at = Self::now();
@@ -347,6 +361,24 @@ impl Contract {
         let who = env::predecessor_account_id();
         self.destinations.remove(&who);
         events::destination_cleared(&who);
+    }
+
+    /// Owner only: name the accounts that may pause this plan without a vote (at most 10).
+    /// An empty list removes all guardians.
+    pub fn set_guardians(&mut self, plan_id: u64, guardians: Vec<AccountId>) {
+        let by = env::predecessor_account_id();
+        self.owned_plan_mut(&plan_id);
+        Self::validate_guardians(&guardians);
+        if guardians.is_empty() {
+            self.guardians.remove(&plan_id);
+        } else {
+            self.guardians.insert(plan_id, guardians.clone());
+        }
+        events::guardians_set(plan_id, &by, &guardians);
+    }
+
+    pub fn get_guardians(&self, plan_id: u64) -> Vec<AccountId> {
+        self.guardians.get(&plan_id).cloned().unwrap_or_default()
     }
 
     pub fn get_destination(&self, account_id: AccountId) -> Option<Destination> {
@@ -635,6 +667,13 @@ impl Contract {
         plan
     }
 
+    fn validate_guardians(guardians: &[AccountId]) {
+        require!(guardians.len() <= 10, "At most 10 guardians");
+        for (i, g) in guardians.iter().enumerate() {
+            require!(!guardians[..i].contains(g), "Duplicate guardian");
+        }
+    }
+
     fn validate_recipients(recipients: &[Recipient], max_recipients: u32) {
         require!(!recipients.is_empty(), "At least one recipient is required");
         require!(recipients.len() as u32 <= max_recipients, "Too many recipients");
@@ -680,6 +719,10 @@ impl Contract {
         plan.cap_per_run = input.cap_per_run.unwrap_or(U128(total));
         require!(total <= plan.cap_per_run.0, "Recipients total exceeds cap_per_run");
         self.plans.insert(plan_id, plan);
+        if let Some(guardians) = input.guardians.filter(|g| !g.is_empty()) {
+            Self::validate_guardians(&guardians);
+            self.guardians.insert(plan_id, guardians);
+        }
         let mut ids = self.plans_by_owner.get(&owner).cloned().unwrap_or_default();
         ids.push(plan_id);
         self.plans_by_owner.insert(owner.clone(), ids);
