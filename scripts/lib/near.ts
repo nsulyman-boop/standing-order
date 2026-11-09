@@ -58,7 +58,7 @@ export function account(accountId: string): Account {
 }
 
 export async function view<T = unknown>(contractId: string, method: string, args: Record<string, unknown> = {}): Promise<T> {
-  return (await provider.callFunction<T>({ contractId, method, args })) as T;
+  return (await provider.callFunction({ contractId, method, args })) as unknown as T;
 }
 
 export async function accountExists(accountId: string): Promise<boolean> {

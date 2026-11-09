@@ -82,3 +82,13 @@ What the log lines mean (one JSON object per line):
 With `KEEPER_HTTP_PORT` set, `GET http://localhost:8787/` returns the live status (ticks, runs, recent outcomes); point the
 dashboard at it with `VITE_KEEPER_URL=http://localhost:8787/`. Without `VITE_KEEPER_URL` the dashboard hides the keeper pill.
 - 2026-11-08 22:19 UTC: redeployed (route shape checks, address case rule, config/storage events; stripped 409,678-byte wasm, sha256 c61d7081…). State layout unchanged, no migration.
+
+## 2026-11-09: schedules realigned for judging
+
+- The in-container keeper stopped when its worker restarted (~22:28 UTC Nov 8), so payouts paused for ~2.5 h. Lesson: the
+  keeper now also runs on GitHub Actions every 5 minutes (`.github/workflows/keeper.yml`) with its own `run_due`-only key.
+- Proposals #14–#16 (one per plan: pause → `update_plan` interval → `resume_plan` with `skip_missed`) realigned plan #1 to
+  30 min, plan #2 to hourly, plan #3 to 10 min, with no back pay. Proposals #17–#19 topped the plans up to last past Nov 25.
+- Proposals #20–#21 (retitle plan #1) were marked Approved by Sputnik although the inner `update_plan` panicked: the longer
+  title needs a storage deposit and none was attached. Proposal #22 attached 0.01 NEAR and succeeded. Sputnik's Approved
+  status does not prove the inner call succeeded; check the effect (`npm run status`).

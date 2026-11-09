@@ -27,6 +27,7 @@ const ONCE = process.argv.includes("--once");
 const LOG_FILE = process.env.KEEPER_LOG ?? path.join(here, "..", "data", "runs.jsonl");
 const CROSSCHAIN: Mode = (process.env.CROSSCHAIN as Mode) ?? (NETWORK === "mainnet" ? "live" : "dry");
 const TGAS_300 = 300n * 10n ** 12n;
+const MAX_CATCHUP = Number(process.env.MAX_CATCHUP ?? 3);
 
 const provider = new JsonRpcProvider({ url: RPC_URL });
 const keeper = new Account(KEEPER_ACCOUNT, provider, KEEPER_KEY);
@@ -57,6 +58,9 @@ async function tick(): Promise<void> {
   for (const planId of due) {
     const { routes, routeLogs } = await buildRoutes(planId);
     // A run with many recipients is paid over several calls; keep going until it completes.
+    // After a completed run, keep going while the plan is still due (catch up at most
+    // MAX_CATCHUP periods per tick, which absorbs delayed scheduled runs such as GitHub cron).
+    let completedRuns = 0;
     for (let i = 0; i < 20; i++) {
       const res = await keeper.callFunctionRaw({ contractId: CONTRACT, methodName: "run_due", args: { plan_id: planId, routes: routes.length ? routes : null }, gas: TGAS_300 });
       const outcome = decode<Outcome>(res);
@@ -71,7 +75,11 @@ async function tick(): Promise<void> {
         state.payoutsSent += outcome.Sent.sent;
         if (outcome.Sent.completed) state.runs += 1;
         log("sent", entry);
-        if (outcome.Sent.completed) break;
+        if (outcome.Sent.completed) {
+          completedRuns += 1;
+          const stillDue = await provider.callFunction<boolean>({ contractId: CONTRACT, method: "is_due", args: { plan_id: planId } });
+          if (!stillDue || completedRuns >= MAX_CATCHUP) break;
+        }
         continue;
       }
       log("skipped", entry);

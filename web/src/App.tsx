@@ -4,6 +4,7 @@ import { PlanCard } from "./components/PlanCard";
 import { PlanDetail } from "./components/PlanDetail";
 import { Requests } from "./components/Requests";
 import { DestinationPanel } from "./components/DestinationPanel";
+import { LiveFeed, ago, useRecentPayouts } from "./components/LiveFeed";
 import { CONTRACT, DAO, EXPLORER, KEEPER_URL, NETWORK, REPO_URL } from "./config";
 import { formatAmount, formatCountdown, sum } from "./format";
 import { getDaoProposals, getPlans, getTokenBalance, getTokenMeta, type Plan, type Proposal, type TokenMeta } from "./near";
@@ -30,6 +31,9 @@ export default function App() {
   const [nowMs, setNowMs] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [triggering, setTriggering] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 1000);
@@ -67,7 +71,7 @@ export default function App() {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const onHash = () => {
@@ -84,6 +88,24 @@ export default function App() {
     if (window.location.hash !== hash) window.location.hash = hash;
   };
 
+  // run_due is permissionless: any connected testnet account can make a due payday happen.
+  const trigger = async (planId: number) => {
+    setToast(null);
+    try {
+      if (!wallet.connected) await wallet.signIn();
+      setTriggering(planId);
+      await wallet.call("run_due", { plan_id: planId, routes: null }, "0", "300000000000000");
+      setToast({ ok: true, text: `Payday for plan #${planId} triggered. Payouts appear below in a few seconds.` });
+      setTimeout(() => setRefresh((r) => r + 1), 2500);
+    } catch (e) {
+      setToast({ ok: false, text: String((e as any)?.message ?? e).slice(0, 200) });
+    } finally {
+      setTriggering(null);
+    }
+  };
+
+  const feed = useRecentPayouts(plans);
+  const lastPayout = feed[0]?.timestamp;
   const active = plans.filter((p) => p.status === "Active");
   const totalPaid = useMemo(() => {
     // Sum of completed runs × per-run total, per plan (payout records are per plan; this is the aggregate).
@@ -107,6 +129,12 @@ export default function App() {
           <span className="pill hide-sm"><span className="dot" style={{ background: NETWORK === "mainnet" ? "var(--green)" : "var(--purple)" }} />{NETWORK}</span>
           <a className="pill hide-sm mono" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer">{CONTRACT} ↗</a>
           <div className="spacer" />
+          {!KEEPER_URL && lastPayout && (
+            <span className={`pill keeper ${nowMs / 1000 - lastPayout < 1800 ? "ok" : "bad"}`} title="time since the latest payout recorded on-chain">
+              <span className="dot" />
+              <span className="text">Last payout {ago(lastPayout, nowMs)}</span>
+            </span>
+          )}
           {KEEPER_URL && (
             <span className={`pill keeper ${keeper ? (keeperFresh ? "ok" : "bad") : ""}`} title={keeper?.lastTick ? `last tick ${keeper.lastTick}` : "keeper status endpoint unreachable"}>
               <span className="dot" />
@@ -122,19 +150,26 @@ export default function App() {
           <span className="eyebrow">Recurring payroll for NEAR treasuries</span>
           <h1>Vote once. Pay every period. Settle on any chain.</h1>
           <p>
-            A Sputnik DAO funds and authorises a plan in one vote. Standing Order pays each contributor on schedule, within the caps the council set,
-            until the council pauses it. Recipients pick the token and chain they want; NEAR Intents does the delivery.
+            A Sputnik DAO funds and authorises a plan in one vote. Standing Order pays each contributor on schedule, at the amounts and cadence the council
+            voted, until the council pauses it. Recipients pick the token and chain they want; NEAR Intents does the delivery.
           </p>
+          <div className="proof row">
+            <a className="pill" href={`${EXPLORER}/address/${CONTRACT}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--green)" }} />Contract on {NETWORK} ↗</a>
+            <a className="pill" href={`${EXPLORER}/address/${DAO}`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--purple)" }} />Sputnik DAO treasury ↗</a>
+            <a className="pill" href={`${REPO_URL}/actions/workflows/test.yml`} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--blue)" }} />49 tests passing in CI ↗</a>
+            <a className="pill" href={REPO_URL} target="_blank" rel="noreferrer"><span className="dot" style={{ background: "var(--ink)" }} />Open source ↗</a>
+          </div>
         </section>
 
         <section className="stats">
           <div className="stat"><div className="label">Active plans</div><div className="value">{loaded ? active.length : "…"}</div><div className="sub">{plans.length} total on this contract</div></div>
           <div className="stat"><div className="label">Paid out so far</div><div className="value mono">{loaded ? formatAmount(totalPaid, meta, false) : "…"}</div><div className="sub">{plans.reduce((a, p) => a + p.runs_completed, 0)} runs completed</div></div>
-          <div className="stat"><div className="label">Next payday</div><div className="value mono">{nextRun ? formatCountdown(nextRun, nowMs).text : "—"}</div><div className="sub">keeper triggers it automatically</div></div>
+          <div className="stat"><div className="label">Next payday</div><div className="value mono">{nextRun ? formatCountdown(nextRun, nowMs).text : "—"}</div><div className="sub">{nextRun && formatCountdown(nextRun, nowMs).due ? "due: keeper runs every ~5 min, or trigger it below" : "keeper triggers it automatically"}</div></div>
           <div className="stat"><div className="label">Committed in plans</div><div className="value mono">{loaded ? formatAmount(committed, meta, false) : "…"}</div><div className="sub">treasury holds {formatAmount(treasury, meta, false)}</div></div>
         </section>
 
         {error && <div className="note err-text" style={{ marginBottom: 16 }}>RPC error: {error}</div>}
+        {toast && <div className={`note ${toast.ok ? "ok-text" : "err-text"}`} style={{ marginBottom: 16 }}>{toast.text}</div>}
 
         <section className="grid">
           <div className="col">
@@ -144,7 +179,7 @@ export default function App() {
                 {!loaded && <div className="card empty">Loading plans from {CONTRACT}…</div>}
                 {loaded && plans.length === 0 && <div className="card empty">No plans yet. A DAO creates one by voting on a funding proposal.</div>}
                 {plans.slice().sort((a, b) => (a.status === "Active" ? -1 : 1) - (b.status === "Active" ? -1 : 1) || b.id - a.id).map((p) => (
-                  <PlanCard key={p.id} plan={p} meta={meta} nowMs={nowMs} selected={p.id === selected} onSelect={() => select(p.id)} />
+                  <PlanCard key={p.id} plan={p} meta={meta} nowMs={nowMs} selected={p.id === selected} onSelect={() => select(p.id)} onTrigger={() => trigger(p.id)} triggering={triggering === p.id} />
                 ))}
               </div>
             </div>
@@ -152,6 +187,7 @@ export default function App() {
           </div>
 
           <div className="col">
+            <LiveFeed items={feed} meta={meta} nowMs={nowMs} />
             <Requests proposals={proposals} />
             <DestinationPanel accountId={wallet.accountId} connected={wallet.connected} onSignIn={wallet.signIn} onSignOut={wallet.signOut} call={wallet.call} />
             <div className="card pad">

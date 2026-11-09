@@ -1,0 +1,44 @@
+# Unattended keeper: every 5 minutes, trigger any due Standing Order payroll run on testnet.
+#
+# The KEEPER_KEY secret is a NEAR function-call access key that can ONLY call `run_due` on the
+# contract (the keeper refuses to start with anything broader). If it ever leaked, the worst a
+# holder could do is make a payment that is already due happen on time. That is why it is safe
+# to keep in CI. GitHub may delay scheduled runs; the keeper catches up a few periods per run.
+name: keeper
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Trigger due runs (run_due-only key)
+        env:
+          NEAR_NETWORK: testnet
+          SO_CONTRACT: standing-order.testnet
+          KEEPER_ACCOUNT: keeper.standing-order.testnet
+          KEEPER_KEY: ${{ secrets.KEEPER_KEY }}
+          CROSSCHAIN: dry
+          MAX_CATCHUP: "3"
+        run: |
+          if [ -z "$KEEPER_KEY" ]; then
+            echo "KEEPER_KEY secret not set; see README 'Run the keeper'"; exit 0
+          fi
+          npm run keeper:once
