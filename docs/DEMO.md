@@ -15,17 +15,22 @@
 
 ## X post (draft, human posts it)
 
-> Your DAO votes on payroll 12× a year. Standing Order: vote once.
+Structure the organisers suggest: the user's problem → one complete moment → what NEAR does in it → a next step.
+
+> Your DAO files, votes on and signs the same payroll 12× a year. Standing Order: vote once.
 >
-> Built at NEAR HACKATHON: a Sputnik DAO funds a plan in one vote, a keeper with a run_due-only key pays every period, and recipients get USDC on Base/Arbitrum/Solana via NEAR Intents, with 1Click's quote signature verified on-chain.
+> Built at NEAR HACKATHON. In the clip: a Sputnik DAO approves one proposal, then payday runs itself — 207 payouts so far on testnet, every one in the on-chain ledger (CSV button on the page).
 >
-> Live on testnet, Trezu templates included: https://nsulyman-boop.github.io/standing-order/
-> Repo: https://github.com/nsulyman-boop/standing-order · Demo DAO: payroll-demo.sputnik-v2.testnet
+> What NEAR does here: Sputnik keeps custody (no new multisig); the keeper's key can only call `run_due`; any council member the DAO names can hit pause alone; recipients get USDC on Base/Arbitrum/Solana through NEAR Intents, 1Click's signature checked on-chain; a payroll clerk on NEAR AI Cloud drafts the proposal from invoices inside a TEE and leaves a receipt you can re-verify.
+>
+> Try it without keys in 20 s: `git clone … && npm ci && npm run judge`
+> Live: https://nsulyman-boop.github.io/standing-order/ · Repo: https://github.com/nsulyman-boop/standing-order
 > @NEARProtocol #NEARHackathon @NearBuilders @NearLegion
 >
-> Which DAO should run payroll on this first?
+> Run a treasury on NEAR? Reply with your DAO and I'll file the first plan template with you on testnet.
 
-Attach `docs/demo.mp4` (or the screenshots in `docs/screenshots/`).
+Attach `docs/demo.mp4` (≤90 s: a payday landing, the keeper log line, the clerk's "What was verified" panel).
+Once the mainnet routed payout exists, replace the Intents sentence with its transaction link.
 
 ## Pre-submission feedback post (draft, post 2–3 days before the 2026-11-14 deadline)
 
