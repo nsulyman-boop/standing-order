@@ -21,7 +21,8 @@ const NETWORK = process.env.NEAR_NETWORK ?? "testnet";
 const RPC_URL = process.env.NEAR_RPC_URL ?? (NETWORK === "mainnet" ? "https://free.rpc.fastnear.com" : "https://test.rpc.fastnear.com");
 const CONTRACT = must("SO_CONTRACT");
 const KEEPER_ACCOUNT = must("KEEPER_ACCOUNT");
-const KEEPER_KEY = must("KEEPER_KEY") as KeyPairString;
+// Secrets pasted into CI often carry a trailing newline or quotes; a key is a single base58 token.
+const KEEPER_KEY = must("KEEPER_KEY").trim().replace(/^["']|["']$/g, "") as KeyPairString;
 const POLL_SECONDS = Number(process.env.POLL_SECONDS ?? 15);
 const ONCE = process.argv.includes("--once");
 const LOG_FILE = process.env.KEEPER_LOG ?? path.join(here, "..", "data", "runs.jsonl");
