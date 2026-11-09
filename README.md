@@ -4,6 +4,8 @@
 
 **Vote once, pay every period on NEAR; cross-chain delivery through NEAR Intents, verified on-chain (mainnet demo pending).**
 
+**Live dashboard:** https://nsulyman-boop.github.io/standing-order/ (reads the testnet contract directly; payouts land every 10 minutes)
+
 A Sputnik DAO funds and authorises a payroll plan in a single vote. From then on the Standing Order
 contract pays every contributor on schedule, within the caps the council set, until the council
 pauses or cancels it. A keeper that holds a key able to call only `run_due` triggers each period.
@@ -111,7 +113,7 @@ plan #3 every 10 minutes while they are funded; when a plan cannot afford a full
 cd web && npm install && npm run dev      # then open http://localhost:3000
 ```
 
-Live: <hosted URL, filled in when GitHub Pages is enabled>
+Live: https://nsulyman-boop.github.io/standing-order/
 
 See: the dashboard with active plans, countdown to the next payday, payout history with explorer
 links, the DAO's Standing Order proposals (including proposal #5, compiled and filed with Trezu's

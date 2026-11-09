@@ -19,7 +19,7 @@
 >
 > Built at NEAR HACKATHON: a Sputnik DAO funds a plan in one vote, a keeper with a run_due-only key pays every period, and recipients get USDC on Base/Arbitrum/Solana via NEAR Intents, with 1Click's quote signature verified on-chain.
 >
-> Live on testnet, Trezu templates included.
+> Live on testnet, Trezu templates included: https://nsulyman-boop.github.io/standing-order/
 > Repo: https://github.com/nsulyman-boop/standing-order · Demo DAO: payroll-demo.sputnik-v2.testnet
 > @NEARProtocol #NEARHackathon @NearBuilders @NearLegion
 >
